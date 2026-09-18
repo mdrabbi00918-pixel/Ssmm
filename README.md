@@ -1,12 +1,27 @@
-# সুমন ভাই Panel
+# সুমন ভাই Panel — Main v1
 
-PHP + Docker starter for connecting a reseller panel to an SMM provider API.
+Full starter reseller panel with:
+- Customer registration/login
+- Wallet balance
+- Manual bKash/Nagad deposit requests
+- Admin deposit approval/rejection
+- Live SMMSUN service catalog
+- ৳10 markup per 1,000 units
+- Authenticated order placement to SMMSUN API
+- Customer order history
+- Admin recent orders
+- CSRF protection and password hashing
 
-## Environment variables
-- `SMM_API_URL`
-- `SMM_API_KEY`
+## Render environment variables
+- `SMM_API_URL=https://my.smmsun.com/api/v2`
+- `SMM_API_KEY=` (keep private; never put in GitHub)
+- `USD_TO_BDT=122`
+- `MARKUP_BDT=10`
+- `ADMIN_EMAIL=your-admin-email@example.com`
+- `ADMIN_PASSWORD=use-a-strong-password`
+- `DB_DIR=/var/www/html/data`
 
-Never commit the API key to GitHub. Add it in Render's Environment Variables.
+### Important
+This version uses SQLite for a working prototype. Render's local filesystem is not persistent across all redeploy/restart scenarios. For production, move the database to PostgreSQL before taking real customer payments at scale.
 
-## Deploy
-This project is designed for a Docker-capable host such as Render.
+Payment is manual in this version: customers submit amount + transaction ID and an admin approves it. No bKash/Nagad API credentials are included.

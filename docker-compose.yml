@@ -6,3 +6,5 @@ services:
     environment:
       SMM_API_URL: ${SMM_API_URL}
       SMM_API_KEY: ${SMM_API_KEY}
+      USD_TO_BDT: ${USD_TO_BDT}
+      MARKUP_BDT: ${MARKUP_BDT}
