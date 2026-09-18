@@ -6,7 +6,7 @@ PHP + Docker starter for connecting a reseller panel to an SMM provider API.
 - `SMM_API_URL`
 - `SMM_API_KEY`
 
-Never commit the API key to GitHub. Add it in your hosting provider's environment variables.
+Never commit the API key to GitHub. Add it in Render's Environment Variables.
 
 ## Deploy
-Use a PHP/Docker-capable host. GitHub Pages cannot run this PHP application.
+This project is designed for a Docker-capable host such as Render.

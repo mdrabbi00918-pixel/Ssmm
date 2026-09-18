@@ -28,7 +28,9 @@ final class SmmsunClient {
         $error = curl_error($ch);
         curl_close($ch);
 
-        if ($body === false) return ['error' => $error ?: 'API request failed'];
+        if ($body === false) {
+            return ['error' => $error ?: 'API request failed'];
+        }
 
         $decoded = json_decode($body, true);
         return is_array($decoded) ? $decoded : ['raw' => $body];

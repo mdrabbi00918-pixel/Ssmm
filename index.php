@@ -11,18 +11,17 @@ $result = $client->services();
 <!doctype html>
 <html lang="bn">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>সুমন ভাই Panel</title>
-<style>
-body{font-family:system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 16px;background:#f6f7f9}
-.card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:16px;margin:10px 0}
-pre{white-space:pre-wrap;overflow:auto}
-</style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>সুমন ভাই Panel</title>
+    <style>
+        body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 16px}
+        pre{white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:16px;border-radius:10px}
+    </style>
 </head>
 <body>
-<h1>সুমন ভাই Panel</h1>
-<p>SMM provider service-list connection test</p>
-<div class="card"><pre><?= htmlspecialchars(json_encode($result, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?></pre></div>
+    <h1>সুমন ভাই Panel</h1>
+    <p>SMMSUN service connection test</p>
+    <pre><?= htmlspecialchars(json_encode($result, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?></pre>
 </body>
 </html>

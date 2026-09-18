@@ -2,7 +2,7 @@ services:
   web:
     build: .
     ports:
-      - "8080:80"
+      - "10000:10000"
     environment:
       SMM_API_URL: ${SMM_API_URL}
       SMM_API_KEY: ${SMM_API_KEY}
