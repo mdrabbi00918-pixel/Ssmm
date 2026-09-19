@@ -11,10 +11,6 @@ services:
     envVars:
       - key: PORT
         value: "10000"
-      - key: APP_ENV
-        value: production
-      - key: SESSION_SAVE_PATH
-        value: /var/www/html/data/sessions
       - key: DB_DIR
         value: /var/www/html/data
       - key: USD_TO_BDT
@@ -23,6 +19,8 @@ services:
         value: "10"
       - key: DATABASE_URL
         sync: false
+      - key: SUPABASE_POOLER_HOST
+        value: aws-0-ap-southeast-2.pooler.supabase.com
       - key: SMM_API_URL
         value: https://my.smmsun.com/api/v2
       - key: SMM_API_KEY

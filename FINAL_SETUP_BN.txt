@@ -42,10 +42,8 @@ Only the requested customer service IDs are visible/orderable in Customer Panel:
 6) If an API key is missing
 Orders/services will show a provider configuration error until SMM_API_KEY is entered in Render. This is intentional and prevents exposing the secret in the ZIP.
 
-
-PERSISTENT LOGIN / DEPLOY NOTE
-- Production requires DATABASE_URL; the app will NOT fall back to a fresh JSON database if DATABASE_URL is missing.
-- Customer accounts/password hashes, orders, deposits, Supercell items and purchases are stored in Supabase PostgreSQL.
-- PHP sessions are also stored under /var/www/html/data/sessions on the Render persistent disk.
-- Remember-login tokens are stored in Supabase for 30 days and are rotated automatically.
-- Therefore a GitHub push or Render redeploy does not reset customer accounts or passwords.
+7) Supabase/Render connection hardening
+- This build automatically converts a Supabase direct host (db.<project-ref>.supabase.co) to the Session Pooler host configured as SUPABASE_POOLER_HOST.
+- Default pooler host for this project/region: aws-0-ap-southeast-2.pooler.supabase.com
+- If DATABASE_URL is already a Session Pooler URI, it is used unchanged.
+- Keep DATABASE_URL secret; never commit it to GitHub.

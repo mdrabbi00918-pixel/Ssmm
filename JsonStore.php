@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 /**
  * Persistent PostgreSQL store for Render + Supabase.
- * Uses PostgreSQL/Supabase in production. JSON fallback is kept for local development only.
+ * Falls back to the previous JSON store only when DATABASE_URL is absent,
+ * so local development still works without a database.
  */
 final class JsonStore {
     private ?PDO $pdo = null;
@@ -16,10 +17,7 @@ final class JsonStore {
             $this->initSchema();
             return;
         }
-        // Never silently fall back to JSON on production/Render. A missing DATABASE_URL
-        // must fail loudly instead of creating a fresh empty customer database.
-        $production = strtolower((string)(getenv('APP_ENV') ?: '')) === 'production' || getenv('RENDER') === 'true' || getenv('RENDER_SERVICE_ID');
-        if ($production) throw new RuntimeException('DATABASE_URL is required in production. Customer data is not allowed to fall back to local JSON storage.');
+        // Local fallback only. Production Render deployments should set DATABASE_URL.
         if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) throw new RuntimeException('Cannot create data directory.');
         $this->file = rtrim($dir, '/\\') . '/panel.json';
         if (!is_file($this->file)) $this->writeJson($this->emptyData());
@@ -28,17 +26,33 @@ final class JsonStore {
     private function connectPostgres(string $url): PDO {
         $parts = parse_url($url);
         if (!is_array($parts) || empty($parts['host'])) throw new RuntimeException('Invalid DATABASE_URL.');
-        $host = (string)$parts['host'];
+
+        $originalHost = (string)$parts['host'];
+        $host = $originalHost;
         $port = (int)($parts['port'] ?? 5432);
         $db = ltrim((string)($parts['path'] ?? '/postgres'), '/');
         $user = rawurldecode((string)($parts['user'] ?? ''));
         $pass = rawurldecode((string)($parts['pass'] ?? ''));
+
+        // Supabase direct DB hosts can resolve to IPv6 addresses that are not
+        // reachable from some Render runtimes. Transparently switch direct
+        // Supabase URLs to the Session Pooler. Real pooler URLs are untouched.
+        if (preg_match('/^db\.([^.]+)\.supabase\.co$/i', $originalHost, $m)) {
+            $poolerHost = trim((string)(getenv('SUPABASE_POOLER_HOST') ?: 'aws-0-ap-southeast-2.pooler.supabase.com'));
+            if ($poolerHost !== '') {
+                $host = $poolerHost;
+                $port = 5432;
+                if ($user === 'postgres') $user = 'postgres.' . $m[1];
+            }
+        }
+
         if ($user === '' || $pass === '' || $db === '') throw new RuntimeException('DATABASE_URL is incomplete.');
         $dsn = "pgsql:host={$host};port={$port};dbname={$db};sslmode=require";
         return new PDO($dsn, $user, $pass, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
+            PDO::ATTR_TIMEOUT => 15,
         ]);
     }
 
@@ -100,31 +114,12 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS digital_products (
-  id BIGSERIAL PRIMARY KEY,
-  name TEXT NOT NULL,
-  image_url TEXT NOT NULL DEFAULT '',
-  description TEXT NOT NULL DEFAULT '',
-  price NUMERIC(14,2) NOT NULL,
-  item_link TEXT NOT NULL,
-  active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE TABLE IF NOT EXISTS digital_purchases (
-  id BIGSERIAL PRIMARY KEY,
-  product_id BIGINT NOT NULL REFERENCES digital_products(id) ON DELETE CASCADE,
-  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  amount NUMERIC(14,2) NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(product_id,user_id)
-);
-CREATE INDEX IF NOT EXISTS digital_purchases_user_idx ON digital_purchases(user_id);
 SQL;
         $this->pdo?->exec($sql);
     }
 
     private function emptyData(): array {
-        return ['users'=>[],'deposits'=>[],'orders'=>[],'service_prices'=>[],'remember_tokens'=>[],'settings'=>[],'digital_products'=>[],'digital_purchases'=>[],'seq'=>['users'=>0,'deposits'=>0,'orders'=>0,'digital_products'=>0,'digital_purchases'=>0]];
+        return ['users'=>[],'deposits'=>[],'orders'=>[],'service_prices'=>[],'remember_tokens'=>[],'settings'=>[],'seq'=>['users'=>0,'deposits'=>0,'orders'=>0]];
     }
 
     private function readJson(): array {
@@ -236,43 +231,6 @@ SQL;
     public function adminOrders(): array {
         if ($this->pdo) return $this->pdo->query('SELECT o.*,u.name FROM orders o JOIN users u ON u.id=o.user_id ORDER BY o.id DESC LIMIT 100')->fetchAll();
         $d=$this->readJson();$users=[];foreach($d['users'] as $u)$users[$u['id']]=$u;$rows=$d['orders'];foreach($rows as &$o)$o['name']=$users[$o['user_id']]['name']??'';usort($rows,fn($a,$b)=>(int)$b['id']<=>(int)$a['id']);return array_slice($rows,0,100);
-    }
-    public function digitalProducts(bool $activeOnly=false): array {
-        if ($this->pdo) {
-            $sql=$activeOnly?'SELECT * FROM digital_products WHERE active=TRUE ORDER BY id DESC':'SELECT * FROM digital_products ORDER BY id DESC';
-            return $this->pdo->query($sql)->fetchAll();
-        }
-        $rows=$this->readJson()['digital_products']??[];
-        if($activeOnly)$rows=array_values(array_filter($rows,fn($x)=>!empty($x['active'])));
-        usort($rows,fn($a,$b)=>(int)$b['id']<=>(int)$a['id']); return $rows;
-    }
-    public function digitalProduct(int $id): ?array {
-        if($this->pdo){$s=$this->pdo->prepare('SELECT * FROM digital_products WHERE id=:id');$s->execute(['id'=>$id]);$r=$s->fetch();return $r?:null;}
-        foreach($this->readJson()['digital_products']??[] as $r)if((int)$r['id']===$id)return $r; return null;
-    }
-    public function createDigitalProduct(string $name,string $image,string $description,float $price,string $link): array {
-        if($this->pdo){$s=$this->pdo->prepare('INSERT INTO digital_products(name,image_url,description,price,item_link,active) VALUES(:name,:image,:description,:price,:link,TRUE) RETURNING *');$s->execute(['name'=>$name,'image'=>$image,'description'=>$description,'price'=>$price,'link'=>$link]);return $s->fetch();}
-        return $this->mutateJson(function(&$d)use($name,$image,$description,$price,$link){$d['seq']['digital_products']=((int)($d['seq']['digital_products']??0))+1;$x=['id'=>$d['seq']['digital_products'],'name'=>$name,'image_url'=>$image,'description'=>$description,'price'=>$price,'item_link'=>$link,'active'=>true,'created_at'=>date('Y-m-d H:i:s')];$d['digital_products'][]=$x;return $x;});
-    }
-    public function updateDigitalProduct(int $id,array $changes): ?array {
-        if($this->pdo){$allowed=['name','image_url','description','price','item_link','active'];$sets=[];$params=['id'=>$id];foreach($changes as $k=>$v)if(in_array($k,$allowed,true)){$sets[]=$k.'=:'.$k;$params[$k]=$v;}if(!$sets)return $this->digitalProduct($id);$s=$this->pdo->prepare('UPDATE digital_products SET '.implode(',',$sets).' WHERE id=:id RETURNING *');$s->execute($params);$r=$s->fetch();return $r?:null;}
-        return $this->mutateJson(function(&$d)use($id,$changes){foreach($d['digital_products']??[] as &$x)if((int)$x['id']===$id){$x=array_merge($x,$changes);return $x;}return null;});
-    }
-    public function deleteDigitalProduct(int $id): void {
-        if($this->pdo){$s=$this->pdo->prepare('DELETE FROM digital_products WHERE id=:id');$s->execute(['id'=>$id]);return;}
-        $this->mutateJson(function(&$d)use($id){$d['digital_products']=array_values(array_filter($d['digital_products']??[],fn($x)=>(int)$x['id']!==$id));});
-    }
-    public function userDigitalPurchases(int $uid): array {
-        if($this->pdo){$s=$this->pdo->prepare('SELECT p.*,d.name,d.image_url,d.description,d.item_link FROM digital_purchases p JOIN digital_products d ON d.id=p.product_id WHERE p.user_id=:uid ORDER BY p.id DESC');$s->execute(['uid'=>$uid]);return $s->fetchAll();}
-        $d=$this->readJson();$products=[];foreach($d['digital_products']??[] as $x)$products[$x['id']]=$x;$rows=[];foreach($d['digital_purchases']??[] as $x)if((int)$x['user_id']===$uid){$pr=$products[$x['product_id']]??[];$rows[]=array_merge($x,['name'=>$pr['name']??'','image_url'=>$pr['image_url']??'','description'=>$pr['description']??'','item_link'=>$pr['item_link']??'']);}usort($rows,fn($a,$b)=>(int)$b['id']<=>(int)$a['id']);return $rows;
-    }
-    public function hasDigitalPurchase(int $uid,int $pid): bool {
-        if($this->pdo){$s=$this->pdo->prepare('SELECT 1 FROM digital_purchases WHERE user_id=:uid AND product_id=:pid LIMIT 1');$s->execute(['uid'=>$uid,'pid'=>$pid]);return (bool)$s->fetchColumn();}
-        foreach($this->readJson()['digital_purchases']??[] as $x)if((int)$x['user_id']===$uid&&(int)$x['product_id']===$pid)return true;return false;
-    }
-    public function buyDigitalProduct(int $uid,int $pid): bool {
-        if($this->pdo){$this->pdo->beginTransaction();try{$s=$this->pdo->prepare('SELECT * FROM digital_products WHERE id=:id AND active=TRUE FOR UPDATE');$s->execute(['id'=>$pid]);$pr=$s->fetch();if(!$pr||$this->hasDigitalPurchase($uid,$pid)){$this->pdo->rollBack();return false;}$s=$this->pdo->prepare('SELECT balance FROM users WHERE id=:id FOR UPDATE');$s->execute(['id'=>$uid]);$bal=$s->fetchColumn();if($bal===false||(float)$bal<(float)$pr['price']){$this->pdo->rollBack();return false;}$s=$this->pdo->prepare('UPDATE users SET balance=balance-:amount WHERE id=:id');$s->execute(['amount'=>$pr['price'],'id'=>$uid]);$s=$this->pdo->prepare('INSERT INTO digital_purchases(product_id,user_id,amount) VALUES(:pid,:uid,:amount)');$s->execute(['pid'=>$pid,'uid'=>$uid,'amount'=>$pr['price']]);$this->pdo->commit();return true;}catch(Throwable $e){if($this->pdo->inTransaction())$this->pdo->rollBack();throw $e;}}
-        return $this->mutateJson(function(&$d)use($uid,$pid){foreach($d['digital_purchases']??[] as $x)if((int)$x['user_id']===$uid&&(int)$x['product_id']===$pid)return false;foreach($d['digital_products']??[] as $pr)if((int)$pr['id']===$pid&&!empty($pr['active'])){foreach($d['users'] as &$u)if((int)$u['id']===$uid){if((float)$u['balance']<(float)$pr['price'])return false;$u['balance']=(float)$u['balance']-(float)$pr['price'];$d['seq']['digital_purchases']=((int)($d['seq']['digital_purchases']??0))+1;$d['digital_purchases'][]=['id'=>$d['seq']['digital_purchases'],'product_id'=>$pid,'user_id'=>$uid,'amount'=>$pr['price'],'created_at'=>date('Y-m-d H:i:s')];return true;}}return false;});
     }
     public function counts(): array {
         if ($this->pdo) {$users=(int)$this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();$orders=(int)$this->pdo->query('SELECT COUNT(*) FROM orders')->fetchColumn();$pending=(int)$this->pdo->query("SELECT COUNT(*) FROM deposits WHERE status='pending'")->fetchColumn();$sales=(float)$this->pdo->query('SELECT COALESCE(SUM(total),0) FROM orders')->fetchColumn();return ['users'=>$users,'orders'=>$orders,'deposits_pending'=>$pending,'sales'=>$sales];}
