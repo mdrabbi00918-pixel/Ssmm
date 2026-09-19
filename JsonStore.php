@@ -58,6 +58,12 @@ final class JsonStore {
     }
 
     private function initSchema(): void {
+        // Avoid running the full CREATE TABLE/INDEX migration on every request.
+        // The marker is per container/process lifetime; a fresh Render instance
+        // will initialize once and then skip this work on subsequent requests.
+        $marker = sys_get_temp_dir() . '/trusted_bazaar_schema_v2';
+        if (is_file($marker)) return;
+
         $sql = <<<'SQL'
 CREATE TABLE IF NOT EXISTS users (
   id BIGSERIAL PRIMARY KEY,
@@ -81,6 +87,7 @@ CREATE TABLE IF NOT EXISTS deposits (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS deposits_status_idx ON deposits(status);
+CREATE INDEX IF NOT EXISTS deposits_trx_normalized_idx ON deposits (LOWER(BTRIM(trx_id)));
 
 CREATE TABLE IF NOT EXISTS orders (
   id BIGSERIAL PRIMARY KEY,
@@ -119,6 +126,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 SQL;
         $this->pdo?->exec($sql);
+        @file_put_contents($marker, (string)time(), LOCK_EX);
     }
 
     private function emptyData(): array {
@@ -200,9 +208,43 @@ SQL;
         $this->mutateJson(function(&$d)use($sid){$d['service_prices']=array_values(array_filter($d['service_prices'],fn($p)=>(string)$p['service_id']!==$sid));});
     }
     public function addDeposit(int $uid,string $method,float $amount,string $trx,string $note): array {
-        if ($this->pdo) {$s=$this->pdo->prepare("INSERT INTO deposits(user_id,method,amount,trx_id,note,status) VALUES(:uid,:method,:amount,:trx,:note,'pending') RETURNING *");$s->execute(['uid'=>$uid,'method'=>$method,'amount'=>$amount,'trx'=>$trx,'note'=>$note]);return $s->fetch();}
-        return $this->mutateJson(function(&$d)use($uid,$method,$amount,$trx,$note){$x=['id'=>$this->jsonId($d,'deposits'),'user_id'=>$uid,'method'=>$method,'amount'=>$amount,'trx_id'=>$trx,'note'=>$note,'status'=>'pending','created_at'=>date('Y-m-d H:i:s')];$d['deposits'][]=$x;return $x;});
+        $trx = trim($trx);
+        if ($trx === '') throw new RuntimeException('invalid_trx');
+        if ($this->pdo) {
+            $this->pdo->beginTransaction();
+            try {
+                // Serialize requests using the same normalized Transaction ID.
+                // This prevents two simultaneous requests from using one TRX.
+                $lock = $this->pdo->prepare('SELECT pg_advisory_xact_lock(hashtext(LOWER(BTRIM(:trx))))');
+                $lock->execute(['trx'=>$trx]);
+                $dup = $this->pdo->prepare('SELECT id FROM deposits WHERE LOWER(BTRIM(trx_id))=LOWER(BTRIM(:trx)) LIMIT 1');
+                $dup->execute(['trx'=>$trx]);
+                if ($dup->fetchColumn() !== false) {
+                    $this->pdo->rollBack();
+                    throw new RuntimeException('duplicate_trx');
+                }
+                $s=$this->pdo->prepare("INSERT INTO deposits(user_id,method,amount,trx_id,note,status) VALUES(:uid,:method,:amount,:trx,:note,'pending') RETURNING *");
+                $s->execute(['uid'=>$uid,'method'=>$method,'amount'=>$amount,'trx'=>$trx,'note'=>$note]);
+                $row=$s->fetch();
+                $this->pdo->commit();
+                return $row ?: [];
+            } catch (Throwable $e) {
+                if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+                throw $e;
+            }
+        }
+        return $this->mutateJson(function(&$d)use($uid,$method,$amount,$trx,$note){
+            foreach($d['deposits'] as $existing) {
+                if (strcasecmp(trim((string)($existing['trx_id'] ?? '')), $trx) === 0) {
+                    throw new RuntimeException('duplicate_trx');
+                }
+            }
+            $x=['id'=>$this->jsonId($d,'deposits'),'user_id'=>$uid,'method'=>$method,'amount'=>$amount,'trx_id'=>$trx,'note'=>$note,'status'=>'pending','created_at'=>date('Y-m-d H:i:s')];
+            $d['deposits'][]=$x;
+            return $x;
+        });
     }
+
     public function deposit(int $id): ?array {
         if ($this->pdo) {$s=$this->pdo->prepare('SELECT * FROM deposits WHERE id=:id');$s->execute(['id'=>$id]);$d=$s->fetch();return $d?:null;}
         foreach($this->readJson()['deposits'] as $x)if((int)$x['id']===$id)return $x;return null;
@@ -235,6 +277,17 @@ SQL;
         if ($this->pdo) return $this->pdo->query('SELECT o.*,u.name FROM orders o JOIN users u ON u.id=o.user_id ORDER BY o.id DESC LIMIT 100')->fetchAll();
         $d=$this->readJson();$users=[];foreach($d['users'] as $u)$users[$u['id']]=$u;$rows=$d['orders'];foreach($rows as &$o)$o['name']=$users[$o['user_id']]['name']??'';usort($rows,fn($a,$b)=>(int)$b['id']<=>(int)$a['id']);return array_slice($rows,0,100);
     }
+    public function digitalProduct(int $id): ?array {
+        if ($this->pdo) {
+            $s=$this->pdo->prepare('SELECT * FROM digital_products WHERE id=:id LIMIT 1');
+            $s->execute(['id'=>$id]);
+            $p=$s->fetch();
+            return $p?:null;
+        }
+        foreach($this->readJson()['digital_products']??[] as $p) if((int)$p['id']===$id) return $p;
+        return null;
+    }
+
     public function digitalProducts(bool $activeOnly=false): array {
         if ($this->pdo) { $sql=$activeOnly?"SELECT * FROM digital_products WHERE active=TRUE ORDER BY id DESC":"SELECT * FROM digital_products ORDER BY id DESC"; return $this->pdo->query($sql)->fetchAll(); }
         $rows=$this->readJson()['digital_products']??[]; if($activeOnly)$rows=array_values(array_filter($rows,fn($x)=>!empty($x['active']))); usort($rows,fn($a,$b)=>(int)$b['id']<=>(int)$a['id']); return $rows;
