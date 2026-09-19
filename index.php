@@ -1,5 +1,14 @@
 <?php
 declare(strict_types=1);
+// Persistent authentication cookie (30 days) + secure session settings.
+$secureCookie = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+session_set_cookie_params([
+  'lifetime' => 60 * 60 * 24 * 30,
+  'path' => '/',
+  'secure' => $secureCookie,
+  'httponly' => true,
+  'samesite' => 'Lax'
+]);
 session_start();
 
 require __DIR__ . '/SmmsunClient.php';
@@ -12,6 +21,8 @@ $db->exec("PRAGMA foreign_keys = ON;");
 $db->exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, balance REAL NOT NULL DEFAULT 0, role TEXT NOT NULL DEFAULT 'customer', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
 $db->exec("CREATE TABLE IF NOT EXISTS deposits (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, method TEXT NOT NULL, amount REAL NOT NULL, trx_id TEXT NOT NULL, note TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))");
 $db->exec("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, service_id TEXT NOT NULL, service_name TEXT NOT NULL, link TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL, total REAL NOT NULL, provider_order_id TEXT, status TEXT NOT NULL DEFAULT 'Pending', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))");
+$db->exec("CREATE TABLE IF NOT EXISTS service_prices (service_id TEXT PRIMARY KEY, price REAL NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
+$db->exec("CREATE TABLE IF NOT EXISTS remember_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, token_hash TEXT UNIQUE NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
 
 $adminEmail = getenv('ADMIN_EMAIL') ?: 'admin@sumonvai.local';
 $adminPass = getenv('ADMIN_PASSWORD') ?: 'ChangeMe123!';
@@ -29,6 +40,29 @@ function go(string $url): never { header('Location: '.$url); exit; }
 function flash(?string $msg=null): ?string { if($msg!==null){$_SESSION['flash']=$msg; return null;} $x=$_SESSION['flash']??null; unset($_SESSION['flash']); return $x; }
 function csrf(): string { if(empty($_SESSION['csrf'])) $_SESSION['csrf']=bin2hex(random_bytes(16)); return $_SESSION['csrf']; }
 function checkCsrf(): void { if(!hash_equals($_SESSION['csrf']??'', $_POST['csrf']??'')) die('Invalid request'); }
+function setRememberCookie(string $token, int $expires): void {
+  global $secureCookie;
+  setcookie('sv_remember', $token, ['expires'=>$expires,'path'=>'/','secure'=>$secureCookie,'httponly'=>true,'samesite'=>'Lax']);
+}
+function clearRememberCookie(): void {
+  global $secureCookie;
+  setcookie('sv_remember','',['expires'=>time()-3600,'path'=>'/','secure'=>$secureCookie,'httponly'=>true,'samesite'=>'Lax']);
+}
+function restoreRememberedUser(PDO $db): void {
+  if (user() || empty($_COOKIE['sv_remember'])) return;
+  $hash=hash('sha256',(string)$_COOKIE['sv_remember']);
+  $st=$db->prepare('SELECT u.* FROM remember_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=? AND t.expires_at>? LIMIT 1');
+  $st->execute([$hash,time()]); $u=$st->fetch(PDO::FETCH_ASSOC);
+  if($u){
+    session_regenerate_id(true); $_SESSION['user']=$u;
+    // Rotate the persistent token on successful restore.
+    $db->prepare('DELETE FROM remember_tokens WHERE token_hash=?')->execute([$hash]);
+    $token=bin2hex(random_bytes(32));
+    $db->prepare('INSERT INTO remember_tokens(user_id,token_hash,expires_at) VALUES(?,?,?)')->execute([$u['id'],hash('sha256',$token),time()+60*60*24*30]);
+    setRememberCookie($token,time()+60*60*24*30);
+  } else { clearRememberCookie(); }
+}
+restoreRememberedUser($db);
 function needLogin(): void { if(!user()) go('?page=login'); }
 function needAdmin(): void { needLogin(); if((user()['role']??'')!=='admin') go('?page=home'); }
 
@@ -45,11 +79,19 @@ if($_SERVER['REQUEST_METHOD']==='POST') {
     $st=$db->prepare('SELECT * FROM users WHERE lower(email)=lower(?) LIMIT 1');$st->execute([$email]);$u=$st->fetch(PDO::FETCH_ASSOC);
     if($u && password_verify($pass,(string)$u['password'])){
       if(password_needs_rehash((string)$u['password'],PASSWORD_DEFAULT)){$db->prepare('UPDATE users SET password=? WHERE id=?')->execute([password_hash($pass,PASSWORD_DEFAULT),$u['id']]);$u['password']=password_hash($pass,PASSWORD_DEFAULT);}
-      session_regenerate_id(true);$_SESSION['user']=$u;go('?page=dashboard');
+      session_regenerate_id(true);$_SESSION['user']=$u;
+      $token=bin2hex(random_bytes(32));
+      $db->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([$u['id']]);
+      $db->prepare('INSERT INTO remember_tokens(user_id,token_hash,expires_at) VALUES(?,?,?)')->execute([$u['id'],hash('sha256',$token),time()+60*60*24*30]);
+      setRememberCookie($token,time()+60*60*24*30);
+      go('?page=dashboard');
     }
     flash('Email অথবা password সঠিক নয়। Account না থাকলে Register করুন।');go('?page=login');
   }
-  if($action==='logout'){session_destroy();go('?page=home');}
+  if($action==='logout'){
+    if(user()) $db->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([user()['id']]);
+    clearRememberCookie(); $_SESSION=[]; session_destroy(); go('?page=home');
+  }
   if($action==='deposit'){
     needLogin();$amount=(float)($_POST['amount']??0);$method=trim((string)($_POST['method']??''));$trx=trim((string)($_POST['trx_id']??''));
     if($amount<$minDeposit){flash('সর্বনিম্ন Deposit ৳50।');go('?page=deposit');}
@@ -57,7 +99,9 @@ if($_SERVER['REQUEST_METHOD']==='POST') {
     $st=$db->prepare('INSERT INTO deposits(user_id,method,amount,trx_id,note) VALUES(?,?,?,?,?)');$st->execute([user()['id'],$method,$amount,$trx,trim((string)($_POST['note']??''))]);flash('Deposit request জমা হয়েছে। Admin approve করলে balance যোগ হবে।');go('?page=deposit');
   }
   if($action==='order'){
-    needLogin();$sid=trim($_POST['service_id']??'');$link=trim($_POST['link']??'');$qty=(int)($_POST['quantity']??0);$name=trim($_POST['service_name']??'');$price=(float)($_POST['unit_price']??0);
+    needLogin();$sid=trim($_POST['service_id']??'');$link=trim($_POST['link']??'');$qty=(int)($_POST['quantity']??0);$name=trim($_POST['service_name']??'');
+    $st=$db->prepare('SELECT price FROM service_prices WHERE service_id=?');$st->execute([$sid]);$override=$st->fetchColumn();
+    $price=$override!==false?(float)$override:(float)($_POST['unit_price']??0);
     if($sid===''||$link===''||$qty<=0||$price<=0){flash('Order তথ্য সঠিক নয়।');go('?page=services');}
     $total=round($price*$qty/1000,2);$st=$db->prepare('SELECT balance FROM users WHERE id=?');$st->execute([user()['id']]);$bal=(float)$st->fetchColumn();
     if($bal<$total){flash('Balance কম। আগে Deposit করুন।');go('?page=deposit');}
@@ -66,6 +110,53 @@ if($_SERVER['REQUEST_METHOD']==='POST') {
     if(isset($resp['error'])){flash('Provider order failed: '.($resp['error']));go('?page=services');}
     $providerId=(string)($resp['order']??'');
     $db->beginTransaction();$st=$db->prepare('UPDATE users SET balance=balance-? WHERE id=?');$st->execute([$total,user()['id']]);$st=$db->prepare('INSERT INTO orders(user_id,service_id,service_name,link,quantity,unit_price,total,provider_order_id,status) VALUES(?,?,?,?,?,?,?,?,?)');$st->execute([user()['id'],$sid,$name,$link,$qty,$price,$total,$providerId,$providerId?'Pending':'Submitted']);$db->commit();flash('Order সফলভাবে পাঠানো হয়েছে। Order ID: '.($providerId?:'pending'));go('?page=orders');
+  }
+  if($action==='save_service_price'){
+    needAdmin(); $sid=trim((string)($_POST['service_id']??'')); $price=(float)($_POST['price']??0);
+    if($sid==='' || $price<=0){flash('সঠিক Service ID ও Price দিন।');go('?page=admin');}
+    $st=$db->prepare('INSERT INTO service_prices(service_id,price,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(service_id) DO UPDATE SET price=excluded.price, updated_at=CURRENT_TIMESTAMP');
+    $st->execute([$sid,$price]); flash('Service price আপডেট হয়েছে।'); go('?page=admin');
+  }
+  if($action==='delete_service_price'){
+    needAdmin(); $sid=trim((string)($_POST['service_id']??'')); $db->prepare('DELETE FROM service_prices WHERE service_id=?')->execute([$sid]); flash('Custom price সরিয়ে provider price + markup ব্যবহার করা হবে।'); go('?page=admin');
+  }
+  if($action==='update_order_status'){
+    needAdmin(); $id=(int)($_POST['id']??0); $status=trim((string)($_POST['status']??''));
+    $allowed=['Pending','Processing','In progress','Completed','Partial','Canceled','Refunded','Submitted','Failed'];
+    if($id>0 && in_array($status,$allowed,true)) $db->prepare('UPDATE orders SET status=? WHERE id=?')->execute([$status,$id]);
+    flash('Order status আপডেট হয়েছে।'); go('?page=admin&tab=orders');
+  }
+  if($action==='adjust_balance'){
+    needAdmin(); $id=(int)($_POST['user_id']??0); $amount=(float)($_POST['amount']??0); $mode=$_POST['mode']??'add';
+    if($id>0 && $amount>0 && in_array($mode,['add','subtract'],true)){
+      $delta=$mode==='add'?$amount:-$amount;
+      $st=$db->prepare('UPDATE users SET balance=MAX(0,balance+?) WHERE id=?'); $st->execute([$delta,$id]);
+      flash('User balance আপডেট হয়েছে।');
+    } else flash('সঠিক balance adjustment দিন।');
+    go('?page=admin&tab=users');
+  }
+  if($action==='set_user_role'){
+    needAdmin(); $id=(int)($_POST['user_id']??0); $role=$_POST['role']??'customer';
+    if($id>0 && in_array($role,['customer','admin'],true) && $id!==(int)user()['id']) $db->prepare('UPDATE users SET role=? WHERE id=?')->execute([$role,$id]);
+    flash('User role আপডেট হয়েছে।'); go('?page=admin&tab=users');
+  }
+  if($action==='bulk_markup'){
+    needAdmin(); $pct=(float)($_POST['percent']??0); $scope=$_POST['scope']??'all';
+    if($pct<=-100){flash('Markup percentage সঠিক নয়।');go('?page=admin&tab=pricing');}
+    $items=$services; $count=0;
+    foreach($items as $sv){
+      $sid=(string)($sv['service']??''); if($sid==='') continue;
+      $platform=platformOf($sv); if($scope!=='all' && $platform!==$scope) continue;
+      $base=unitPrice($sv,$usd,$markup); $new=round($base*(1+$pct/100),2);
+      $db->prepare('INSERT INTO service_prices(service_id,price,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(service_id) DO UPDATE SET price=excluded.price,updated_at=CURRENT_TIMESTAMP')->execute([$sid,$new]); $count++;
+    }
+    flash($count.'টি service-এর customer price bulk update হয়েছে।'); go('?page=admin&tab=pricing');
+  }
+  if($action==='refresh_provider_status'){
+    needAdmin(); $api=new SmmsunClient(getenv('SMM_API_URL')?:'https://my.smmsun.com/api/v2',getenv('SMM_API_KEY')?:'');
+    $rows=$db->query("SELECT id,provider_order_id FROM orders WHERE provider_order_id IS NOT NULL AND provider_order_id<>'' ORDER BY id DESC LIMIT 100")->fetchAll(PDO::FETCH_ASSOC); $n=0;
+    foreach($rows as $r){ $resp=$api->orderStatus((string)$r['provider_order_id']); if(isset($resp['status'])){$db->prepare('UPDATE orders SET status=? WHERE id=?')->execute([(string)$resp['status'],(int)$r['id']]);$n++;} }
+    flash($n.'টি order provider থেকে refresh হয়েছে।'); go('?page=admin&tab=orders');
   }
   if($action==='approve_deposit'){
     needAdmin();$id=(int)$_POST['id'];$st=$db->prepare('SELECT * FROM deposits WHERE id=?');$st->execute([$id]);$d=$st->fetch(PDO::FETCH_ASSOC);if($d&&$d['status']==='pending'){$db->beginTransaction();$db->prepare("UPDATE deposits SET status='approved' WHERE id=?")->execute([$id]);$db->prepare('UPDATE users SET balance=balance+? WHERE id=?')->execute([$d['amount'],$d['user_id']]);$db->commit();}go('?page=admin');
@@ -77,12 +168,27 @@ $page=$_GET['page']??(user()?'dashboard':'login');
 if(!user() && !in_array($page,['login','register'],true)){go('?page=login');}
 $usd=(float)(getenv('USD_TO_BDT')?:122);$markup=(float)(getenv('MARKUP_BDT')?:10);
 $services=[];$apiError='';
-if(in_array($page,['services','home','dashboard'],true)){
+if(in_array($page,['services','home','dashboard','admin'],true)){
   try{$api=new SmmsunClient(getenv('SMM_API_URL')?:'https://my.smmsun.com/api/v2',getenv('SMM_API_KEY')?:'');$r=$api->services();if(isset($r['error']))$apiError=$r['error'];else $services=is_array($r)?$r:[];}catch(Throwable $x){$apiError='Service API unavailable';}
 }
 if(user()){ $st=$db->prepare('SELECT * FROM users WHERE id=?');$st->execute([user()['id']]);$_SESSION['user']=$st->fetch(PDO::FETCH_ASSOC); }
 $u=user();
-function unitPrice(array $s,float $usd,float $markup): float{return (float)($s['rate']??0)*$usd+$markup;}
+function unitPrice(array $s,float $usd,float $markup,?float $override=null): float{return $override!==null?$override:(float)($s['rate']??0)*$usd+$markup;}
+function platformOf(array $s): string {
+  $raw=strtolower(($s['name']??'').' '.($s['category']??'').' '.($s['service']??''));
+  $map=['youtube'=>['youtube','youtu.be'],'facebook'=>['facebook','fb'],'instagram'=>['instagram','ig'],'tiktok'=>['tiktok','tik tok'],'telegram'=>['telegram','tg'],'twitter'=>['twitter',' x '],'linkedin'=>['linkedin'],'discord'=>['discord'],'spotify'=>['spotify'],'twitch'=>['twitch'],'soundcloud'=>['soundcloud']];
+  foreach($map as $k=>$words) foreach($words as $w) if(str_contains($raw,$w)) return $k;
+  return 'other';
+}
+function serviceTypeOf(array $s,string $platform): string {
+  $raw=strtolower(($s['name']??'').' '.($s['category']??''));
+  $types=['followers'=>'Followers','subscribers'=>'Subscribers','views'=>'Views','likes'=>'Likes','comments'=>'Comments','shares'=>'Shares','watch time'=>'Watch Time','members'=>'Members','saves'=>'Saves','story views'=>'Story Views','reactions'=>'Reactions','engagement'=>'Engagement'];
+  foreach($types as $needle=>$label) if(str_contains($raw,$needle)) return $label;
+  if($platform==='youtube') { if(str_contains($raw,'sub')) return 'Subscribers'; if(str_contains($raw,'view')) return 'Views'; if(str_contains($raw,'like')) return 'Likes'; }
+  if($platform==='tiktok') { if(str_contains($raw,'sub')) return 'Subscribers'; if(str_contains($raw,'view')) return 'Views'; if(str_contains($raw,'like')) return 'Likes'; if(str_contains($raw,'follow')) return 'Followers'; }
+  if($platform==='instagram' && str_contains($raw,'follow')) return 'Followers';
+  return 'Other';
+}
 ?><!doctype html><html lang="bn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>সুমন ভাই Panel</title><style>
 :root{--primary:#6d5dfc;--primary2:#8b5cf6;--accent:#06b6d4;--dark:#101828;--text:#182033;--muted:#667085;--surface:#ffffff;--line:#e7eaf0;--shadow:0 18px 50px rgba(16,24,40,.09)}
 *{box-sizing:border-box}
@@ -101,53 +207,76 @@ button,input,select,textarea{font:inherit}
 .password-wrap{position:relative}.password-wrap .input{padding-right:50px}.password-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:38px;height:38px;border:0;border-radius:10px;background:#f2f4f7;color:#667085;cursor:pointer;display:grid;place-items:center;font-size:18px}.password-toggle:hover{background:#e9e7ff;color:#5146c8}.password-toggle:focus{outline:3px solid rgba(109,93,252,.14)}
 #modal{backdrop-filter:blur(6px)!important}#modal>.card{border:0;box-shadow:0 30px 90px rgba(0,0,0,.28)}
 @media(max-width:700px){.nav{padding:11px 4%;align-items:flex-start}.brand{font-size:17px}.brand:before{width:34px;height:34px}.navlinks{justify-content:flex-end;gap:5px}.navlinks a,.navlinks button{padding:8px 9px;font-size:12px}.wrap{padding:0 11px;margin:20px auto}.hero{padding:28px 22px;border-radius:20px}.card{padding:16px}.form{margin:28px auto}.form h2{font-size:26px}.toprow{align-items:flex-start;flex-direction:column}.toprow .muted{align-self:flex-start}.table th,.table td{padding:10px;font-size:13px}}
+
+.eyebrow{font-size:11px;letter-spacing:1.6px;font-weight:900;color:#7c6cff;margin-bottom:5px}.service-count,.admin-chip{padding:9px 13px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:12px;font-weight:900;box-shadow:0 8px 20px rgba(16,24,40,.05)}.service-tools{background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.95);padding:14px;border-radius:18px;box-shadow:var(--shadow);margin-bottom:18px}.subcategory-bar{display:flex;gap:8px;overflow-x:auto;padding:0 0 2px}.subcat{flex:0 0 auto;border:1px solid #e3e6ed;background:#f8f9fc;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer}.subcat.active{background:#141b34;color:#fff;border-color:#141b34}.soft{background:#f6f7fb;color:#667085}.service-meta{display:flex;gap:5px;flex-wrap:wrap}.service-card{min-height:190px}.modal-card{max-width:500px;margin:7vh auto;box-shadow:0 30px 90px rgba(0,0,0,.25)}.icon-btn{border:0;background:#f2f4f7;border-radius:10px;width:38px;height:38px;cursor:pointer}.order-total{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(135deg,#f7f5ff,#eefcff);border:1px solid #e4e1ff;padding:14px;border-radius:14px;font-size:16px}.order-total b{font-size:22px}.empty-state{text-align:center;padding:50px 20px;grid-column:1/-1}.empty-icon{font-size:45px}.admin-grid{display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-bottom:24px}.price-form{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}.price-form label{grid-row:1}.price-form input{margin:0}.price-form button{height:48px}.inline-price-form{display:flex;gap:7px;align-items:center}.inline-price-form .input{margin:0;min-width:120px}.inline-price-form .btn{white-space:nowrap}.stat-number{font-size:42px;font-weight:950;margin-top:12px}.mini-note{margin-top:12px;padding:10px;border-radius:10px;background:#f8f9fc;font-size:12px;color:#667085}.section-title{margin-top:28px}@media(max-width:760px){.admin-grid{grid-template-columns:1fr}.price-form{grid-template-columns:1fr}.price-form label{display:none}.service-count{display:none}.toprow{align-items:flex-start}}
+
+.admin-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 22px}.admin-tab{padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;font-weight:850;color:#475467;box-shadow:0 6px 18px rgba(16,24,40,.04)}.admin-tab.active{background:#141b34;color:#fff;border-color:#141b34}.admin-tab b{margin-left:6px;background:#ef4444;color:#fff;border-radius:999px;padding:2px 7px;font-size:10px}.admin-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.stat-card{background:linear-gradient(145deg,#fff,#f8f9ff);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--shadow)}.stat-card span,.stat-card small{display:block;color:var(--muted);font-size:12px}.stat-card strong{display:block;font-size:30px;margin:7px 0}.quick-actions{display:flex;gap:10px;flex-wrap:wrap}.admin-search{max-width:320px;margin:0}.status-approved{background:#ecfdf3;color:#047857}.status-pending{background:#fff7ed;color:#c2410c}.status-rejected{background:#fef2f2;color:#b91c1c}.status-completed{background:#ecfdf3;color:#047857}@media(max-width:900px){.admin-stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.admin-stats{grid-template-columns:1fr}.admin-search{max-width:none}.quick-actions .btn{width:100%}}
 </style></head><body><nav class="nav"><a class="brand" href="?page=home">সুমন ভাই Panel</a><div class="navlinks"><?php if($u):?><a href="?page=dashboard">Dashboard</a><a href="?page=services">Services</a><a href="?page=orders">Orders</a><a href="?page=deposit">Deposit</a><?php if($u['role']==='admin'):?><a href="?page=admin">Admin</a><?php endif;?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="logout"><button>Logout</button></form><?php else:?><a href="?page=login">Login</a><a href="?page=register">Register</a><?php endif;?></div></nav><main class="wrap"><?php if($m=flash()):?><div class="alert"><?=e($m)?></div><?php endif;?>
 <?php if($page==='home'):?><section class="hero"><h1>সুমন ভাই Panel</h1><p>Login করুন, তারপর আপনার Dashboard থেকে Services, Categories, Deposit ও Orders ব্যবহার করুন।</p><a class="btn" href="?page=services">Services দেখুন</a></section><div class="grid"><div class="card"><h3>Live Services</h3><p>Provider API থেকে সার্ভিস লোড হয়।</p></div><div class="card"><h3>Wallet</h3><p>Deposit করে balance যোগ করুন। সর্বনিম্ন Deposit ৳50।</p></div><div class="card"><h3>Orders</h3><p>আপনার order history এখানেই থাকবে।</p></div></div>
 <?php elseif($page==='login'||$page==='register'):?><div class="card form"><div class="muted" style="margin-bottom:6px"><?= $page==='login'?'Welcome back 👋':'Start your journey ✨' ?></div><h2><?=$page==='login'?'Login':'Create account'?></h2><p class="muted" style="margin-top:0;margin-bottom:22px"><?=$page==='login'?'আপনার account-এ নিরাপদে Login করুন।':'নতুন account তৈরি করে panel ব্যবহার শুরু করুন।'?></p><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="<?=$page==='login'?'login':'register'?>"><?php if($page==='register'):?><label>Name</label><input class="input" name="name" placeholder="আপনার নাম" autocomplete="name" required><?php endif;?><label>Email</label><input class="input" type="email" name="email" placeholder="you@example.com" autocomplete="email" required><label>Password</label><div class="password-wrap"><input class="input" id="passwordField" type="password" name="password" placeholder="আপনার password লিখুন" autocomplete="<?=$page==='login'?'current-password':'new-password'?>" required><button class="password-toggle" type="button" onclick="togglePassword('passwordField',this)" aria-label="Show password" title="Show password">👁️</button></div><?php if($page==='register'):?><p class="muted" style="margin-top:-5px">কমপক্ষে ৬ অক্ষর।</p><?php endif;?><button class="btn" style="width:100%;margin-top:5px"><?=$page==='login'?'Login →':'Create Account →'?></button></form><div style="text-align:center;margin-top:18px" class="muted"><?php if($page==='login'):?>নতুন account? <a href="?page=register" style="color:#5b4ee8;font-weight:800">Register করুন</a><?php else:?>আগেই account আছে? <a href="?page=login" style="color:#5b4ee8;font-weight:800">Login করুন</a><?php endif;?></div></div>
 <?php elseif($page==='dashboard'): needLogin();?><div class="toprow"><h2>Dashboard</h2><a class="btn green" href="?page=deposit">+ Deposit</a></div><div class="grid"><div class="card"><div class="muted">Available Balance</div><div class="balance">৳<?=number_format((float)$u['balance'],2)?></div></div><div class="card"><div class="muted">Account</div><h3><?=e($u['name'])?></h3><div class="muted"><?=e($u['email'])?></div></div></div>
 <?php elseif($page==='services'):?>
-<div class="toprow"><h2>Services</h2><span class="muted">USD/BDT: <?=e((string)$usd)?> • Markup: ৳<?=number_format($markup,2)?></span></div>
-<?php if($apiError):?><div class="alert">API: <?=e($apiError)?></div><?php endif;?>
-<div class="category-bar" id="categoryBar">
-  <button class="cat active" data-cat="all">🌐 All</button>
-  <button class="cat" data-cat="youtube">▶️ YouTube</button>
-  <button class="cat" data-cat="facebook">f Facebook</button>
-  <button class="cat" data-cat="instagram">◎ Instagram</button>
-  <button class="cat" data-cat="tiktok">♪ TikTok</button>
-  <button class="cat" data-cat="telegram">✈️ Telegram</button>
-  <button class="cat" data-cat="twitter">𝕏 X</button>
-  <button class="cat" data-cat="linkedin">in LinkedIn</button>
-  <button class="cat" data-cat="discord">◉ Discord</button>
-  <button class="cat" data-cat="spotify">● Spotify</button>
-  <button class="cat" data-cat="twitch">◉ Twitch</button>
-  <button class="cat" data-cat="soundcloud">☁ SoundCloud</button>
-  <button class="cat" data-cat="other">＋ Other</button>
-</div>
-<input id="search" class="input" placeholder="Service search...">
+<div class="toprow"><div><div class="eyebrow">SERVICE MARKETPLACE</div><h2>Premium Services</h2><div class="muted">Platform → service type নির্বাচন করে দ্রুত আপনার প্রয়োজনের সার্ভিস খুঁজুন।</div></div><div class="service-count"><?=count($services)?> Services</div></div>
+<?php if($apiError):?><div class="alert"><?=e($apiError)?></div><?php endif;?>
+<div class="service-tools"><input class="input" id="search" placeholder="🔎 Search service, keyword or ID..." style="margin:0"><div class="category-bar" id="platformBar">
+  <button class="cat active" data-cat="all">🌐 All</button><button class="cat" data-cat="youtube">▶️ YouTube</button><button class="cat" data-cat="instagram">◎ Instagram</button><button class="cat" data-cat="tiktok">♪ TikTok</button><button class="cat" data-cat="facebook">f Facebook</button><button class="cat" data-cat="telegram">✈️ Telegram</button><button class="cat" data-cat="twitter">𝕏 X</button><button class="cat" data-cat="linkedin">in LinkedIn</button><button class="cat" data-cat="discord">◉ Discord</button><button class="cat" data-cat="spotify">● Spotify</button><button class="cat" data-cat="twitch">◉ Twitch</button><button class="cat" data-cat="soundcloud">☁ SoundCloud</button><button class="cat" data-cat="other">＋ Other</button>
+</div><div class="subcategory-bar" id="subcategoryBar"></div></div>
 <div class="grid" id="services">
 <?php foreach($services as $s):
-  $p=unitPrice($s,$usd,$markup);
-  $raw=strtolower(($s['name']??'').' '.($s['category']??'').' '.($s['service']??''));
-  $cat='other';
-  $map=['youtube'=>['youtube','youtu.be'],'facebook'=>['facebook','fb'],'instagram'=>['instagram','ig'],'tiktok'=>['tiktok'],'telegram'=>['telegram','tg'],'twitter'=>['twitter',' x '],'linkedin'=>['linkedin'],'discord'=>['discord'],'spotify'=>['spotify'],'twitch'=>['twitch'],'soundcloud'=>['soundcloud']];
-  foreach($map as $ck=>$words){foreach($words as $w){if(str_contains($raw,$w)){$cat=$ck;break 2;}}}
+  $sid=(string)($s['service']??''); $stp=$db->prepare('SELECT price FROM service_prices WHERE service_id=?');$stp->execute([$sid]);$ov=$stp->fetchColumn();$ov=$ov===false?null:(float)$ov;
+  $p=unitPrice($s,$usd,$markup,$ov); $raw=strtolower(($s['name']??'').' '.($s['category']??'').' '.$sid); $platform=platformOf($s); $stype=serviceTypeOf($s,$platform);
 ?>
-<div class="card service-card service-item" data-search="<?=e($raw)?>" data-cat="<?=e($cat)?>">
- <div><span class="badge">ID <?=e((string)($s['service']??''))?></span> <span class="badge"><?=e((string)($s['category']??'Other'))?></span></div>
- <strong><?=e((string)($s['name']??'Service'))?></strong>
- <div class="muted">Min <?=e((string)($s['min']??''))?> • Max <?=e((string)($s['max']??''))?></div>
- <div class="bottom"><div><div class="price">৳<?=number_format($p,2)?></div><div class="muted">per 1,000</div></div><button class="btn" onclick='openOrder(<?=json_encode((string)($s['service']??''))?>,<?=json_encode((string)($s['name']??''))?>,<?=json_encode((float)$p)?>,<?=json_encode((int)($s['min']??1))?>,<?=json_encode((int)($s['max']??1000000))?>)'>Order</button></div>
+<div class="card service-card service-item" data-search="<?=e($raw)?>" data-platform="<?=e($platform)?>" data-type="<?=e(strtolower($stype))?>">
+ <div class="service-meta"><span class="badge"><?=e(strtoupper($platform))?></span><span class="badge soft"><?=e($stype)?></span><span class="badge soft">ID <?=e($sid)?></span></div>
+ <strong><?=e((string)($s['name']??'Service'))?></strong><div class="muted">Min <?=e((string)($s['min']??''))?> • Max <?=e((string)($s['max']??''))?></div>
+ <div class="bottom"><div><div class="price">৳<?=number_format($p,2)?></div><div class="muted">per 1,000<?= $ov!==null?' • custom price':''?></div></div><button class="btn" onclick='openOrder(<?=json_encode($sid)?>,<?=json_encode((string)($s['name']??''))?>,<?=json_encode((float)$p)?>,<?=json_encode((int)($s['min']??1))?>,<?=json_encode((int)($s['max']??1000000))?>)'>Order Now</button></div>
 </div>
 <?php endforeach;?></div>
-<div id="modal" style="display:none;position:fixed;inset:0;background:#0008;padding:20px;z-index:10"><div class="card" style="max-width:500px;margin:7vh auto"><div class="toprow"><h3>Place Order</h3><button onclick="closeOrder()">✕</button></div><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="order"><input type="hidden" name="service_id" id="sid"><input type="hidden" name="service_name" id="sname"><input type="hidden" name="unit_price" id="price"><label>Service</label><input class="input" id="slabel" disabled><label>Link</label><input class="input" name="link" placeholder="https://..." required><label>Quantity</label><input class="input" type="number" name="quantity" id="qty" required oninput="calc()"><div class="muted">Total: <b id="total">৳0.00</b></div><br><button class="btn green">Confirm Order</button></form></div></div>
+<div id="emptyState" class="card empty-state" style="display:none"><div class="empty-icon">⌕</div><h3>No service found</h3><p class="muted">Search keyword বা অন্য category নির্বাচন করুন।</p></div>
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(7,12,25,.72);backdrop-filter:blur(7px);padding:20px;z-index:100"><div class="card modal-card"><div class="toprow"><div><div class="eyebrow">QUICK ORDER</div><h3>Place Order</h3></div><button class="icon-btn" onclick="closeOrder()">✕</button></div><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="order"><input type="hidden" name="service_id" id="sid"><input type="hidden" name="service_name" id="sname"><input type="hidden" name="unit_price" id="price"><label>Service</label><input class="input" id="slabel" disabled><label>Link</label><input class="input" name="link" placeholder="https://..." required><label>Quantity</label><input class="input" type="number" name="quantity" id="qty" required oninput="calc()"><div class="order-total"><span>Total</span><b id="total">৳0.00</b></div><button class="btn green" style="width:100%;margin-top:14px">Confirm Order</button></form></div></div>
 <script>
-const search=document.getElementById('search'), cards=[...document.querySelectorAll('.service-item')];let activeCat='all';
-function renderServices(){const q=(search?.value||'').toLowerCase();cards.forEach(x=>{const okCat=activeCat==='all'||x.dataset.cat===activeCat;const okSearch=x.dataset.search.includes(q);x.style.display=okCat&&okSearch?'flex':'none'})}
-if(search)search.oninput=renderServices;document.querySelectorAll('.cat').forEach(b=>b.onclick=()=>{document.querySelectorAll('.cat').forEach(x=>x.classList.remove('active'));b.classList.add('active');activeCat=b.dataset.cat;renderServices()});
+const search=document.getElementById('search'), cards=[...document.querySelectorAll('.service-item')], subBar=document.getElementById('subcategoryBar'), empty=document.getElementById('emptyState');let activePlatform='all',activeType='all';
+const typeSets={youtube:['Subscribers','Views','Likes','Comments','Watch Time','Other'],tiktok:['Followers','Views','Likes','Subscribers','Comments','Shares','Other'],instagram:['Followers','Likes','Views','Comments','Story Views','Saves','Other'],facebook:['Followers','Likes','Views','Comments','Shares','Reactions','Other'],telegram:['Members','Views','Reactions','Other'],twitter:['Followers','Likes','Views','Comments','Other'],linkedin:['Followers','Likes','Views','Comments','Other'],discord:['Members','Other'],spotify:['Followers','Plays','Saves','Other'],twitch:['Followers','Views','Other'],soundcloud:['Followers','Plays','Likes','Other'],other:['Other']};
+function drawTypes(){subBar.innerHTML=''; if(activePlatform==='all')return; (typeSets[activePlatform]||['Other']).forEach(t=>{const b=document.createElement('button');b.className='subcat '+(activeType===t.toLowerCase()?'active':'');b.textContent=t;b.onclick=()=>{activeType=t.toLowerCase();drawTypes();renderServices()};subBar.appendChild(b)});}
+function renderServices(){const q=(search?.value||'').toLowerCase().trim();let shown=0;cards.forEach(x=>{const okP=activePlatform==='all'||x.dataset.platform===activePlatform;const okT=activeType==='all'||x.dataset.type===activeType;const okQ=x.dataset.search.includes(q);const show=okP&&okT&&okQ;x.style.display=show?'flex':'none';if(show)shown++});if(empty)empty.style.display=shown?'none':'block'}
+if(search)search.oninput=renderServices;document.querySelectorAll('#platformBar .cat').forEach(b=>b.onclick=()=>{document.querySelectorAll('#platformBar .cat').forEach(x=>x.classList.remove('active'));b.classList.add('active');activePlatform=b.dataset.cat;activeType='all';drawTypes();renderServices()});
 function openOrder(id,name,p,min,max){document.getElementById('modal').style.display='block';document.getElementById('sid').value=id;document.getElementById('sname').value=name;document.getElementById('price').value=p;document.getElementById('slabel').value=name+' (#'+id+')';let q=document.getElementById('qty');q.min=min;q.max=max;q.value=min;calc()}
-function closeOrder(){document.getElementById('modal').style.display='none'}function calc(){let q=+document.getElementById('qty').value||0,p=+document.getElementById('price').value||0;document.getElementById('total').innerText='৳'+(q*p/1000).toFixed(2)}
+function closeOrder(){document.getElementById('modal').style.display='none'}function calc(){let q=+document.getElementById('qty').value||0,p=+document.getElementById('price').value||0;document.getElementById('total').innerText='৳'+(q*p/1000).toFixed(2)}drawTypes();renderServices();
 </script>
 <?php elseif($page==='deposit'):needLogin();?><div class="card form"><h2>Deposit Request</h2><div class="payment-box"><div><b>bKash</b><div class="payment-number">01782242264</div></div><div><b>Nagad</b><div class="payment-number">01887928771</div></div><div class="muted">Send Money করার পর Transaction ID দিন। সর্বনিম্ন Deposit: <b>৳50</b></div></div><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="deposit"><label>Payment Method</label><select name="method" id="paymentMethod" required><option value="bKash">bKash — 01782242264</option><option value="Nagad">Nagad — 01887928771</option></select><label>Amount (BDT)</label><input class="input" type="number" min="50" step="0.01" name="amount" required><div class="muted">Minimum deposit ৳50</div><label>Transaction ID</label><input class="input" name="trx_id" required><label>Note</label><textarea class="input" name="note"></textarea><button class="btn green">Submit Deposit</button></form></div>
 <?php elseif($page==='orders'):needLogin();$st=$db->prepare('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC');$st->execute([$u['id']]);$rows=$st->fetchAll(PDO::FETCH_ASSOC);?><div class="toprow"><h2>My Orders</h2><a class="btn" href="?page=services">New Order</a></div><div style="overflow:auto"><table class="table"><tr><th>ID</th><th>Service</th><th>Qty</th><th>Total</th><th>Status</th><th>Date</th></tr><?php foreach($rows as $r):?><tr><td>#<?=e((string)$r['id'])?><?php if($r['provider_order_id']):?><div class="small">Provider: <?=e($r['provider_order_id'])?></div><?php endif;?></td><td><?=e($r['service_name'])?></td><td><?=e((string)$r['quantity'])?></td><td>৳<?=number_format((float)$r['total'],2)?></td><td><span class="badge"><?=e($r['status'])?></span></td><td><?=e($r['created_at'])?></td></tr><?php endforeach;?></table></div>
-<?php elseif($page==='admin'):needAdmin();$deps=$db->query("SELECT d.*,u.name,u.email FROM deposits d JOIN users u ON u.id=d.user_id ORDER BY d.id DESC")->fetchAll(PDO::FETCH_ASSOC);$orders=$db->query("SELECT o.*,u.name FROM orders o JOIN users u ON u.id=o.user_id ORDER BY o.id DESC LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);?><div class="toprow"><h2>Admin Panel</h2><span class="muted"><?=e($adminEmail)?></span></div><h3>Deposit Requests</h3><div style="overflow:auto"><table class="table"><tr><th>User</th><th>Method</th><th>Amount</th><th>TRX</th><th>Status</th><th>Action</th></tr><?php foreach($deps as $d):?><tr><td><?=e($d['name'])?><div class="small"><?=e($d['email'])?></div></td><td><?=e($d['method'])?></td><td>৳<?=number_format((float)$d['amount'],2)?></td><td><?=e($d['trx_id'])?></td><td><?=e($d['status'])?></td><td><?php if($d['status']==='pending'):?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="approve_deposit"><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn green">Approve</button></form> <form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="reject_deposit"><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn secondary">Reject</button></form><?php endif;?></td></tr><?php endforeach;?></table></div><h3>Recent Orders</h3><div style="overflow:auto"><table class="table"><tr><th>ID</th><th>User</th><th>Service</th><th>Qty</th><th>Total</th><th>Provider</th></tr><?php foreach($orders as $o):?><tr><td>#<?=$o['id']?></td><td><?=e($o['name'])?></td><td><?=e($o['service_name'])?></td><td><?=$o['quantity']?></td><td>৳<?=number_format((float)$o['total'],2)?></td><td><?=e($o['provider_order_id']?:'-')?></td></tr><?php endforeach;?></table></div>
+<?php elseif($page==='admin'):needAdmin();
+$tab=$_GET['tab']??'overview'; if(!in_array($tab,['overview','pricing','deposits','orders','users'],true))$tab='overview';
+$stats=[
+ 'users'=>(int)$db->query("SELECT COUNT(*) FROM users WHERE role='customer'")->fetchColumn(),
+ 'orders'=>(int)$db->query("SELECT COUNT(*) FROM orders")->fetchColumn(),
+ 'revenue'=>(float)$db->query("SELECT COALESCE(SUM(total),0) FROM orders")->fetchColumn(),
+ 'pending_deposits'=>(int)$db->query("SELECT COUNT(*) FROM deposits WHERE status='pending'")->fetchColumn(),
+ 'pending_orders'=>(int)$db->query("SELECT COUNT(*) FROM orders WHERE status IN ('Pending','Processing','In progress','Submitted')")->fetchColumn(),
+];
+$deps=$db->query("SELECT d.*,u.name,u.email FROM deposits d JOIN users u ON u.id=d.user_id ORDER BY d.id DESC LIMIT 150")->fetchAll(PDO::FETCH_ASSOC);
+$orders=$db->query("SELECT o.*,u.name,u.email FROM orders o JOIN users u ON u.id=o.user_id ORDER BY o.id DESC LIMIT 150")->fetchAll(PDO::FETCH_ASSOC);
+$users=$db->query("SELECT id,name,email,balance,role,created_at FROM users ORDER BY id DESC LIMIT 200")->fetchAll(PDO::FETCH_ASSOC);
+$customPrices=$db->query("SELECT * FROM service_prices ORDER BY updated_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+$priceMap=[];foreach($customPrices as $cp)$priceMap[(string)$cp['service_id']]=(float)$cp['price'];
+?>
+<div class="toprow"><div><div class="eyebrow">CONTROL CENTER • ADMIN PRO</div><h2>Admin Control Center</h2><p class="muted">Pricing, deposits, orders ও users—সব এক জায়গা থেকে পরিচালনা করুন।</p></div><span class="admin-chip">● <?=e($adminEmail)?></span></div>
+<div class="admin-tabs"><?php foreach(['overview'=>'Overview','pricing'=>'Pricing','deposits'=>'Deposits','orders'=>'Orders','users'=>'Users'] as $k=>$label):?><a class="admin-tab <?=$tab===$k?'active':''?>" href="?page=admin&tab=<?=$k?>"><?=$label?><?php if($k==='deposits'&&$stats['pending_deposits']):?><b><?=$stats['pending_deposits']?></b><?php endif;?></a><?php endforeach;?></div>
+<?php if($tab==='overview'):?>
+<div class="admin-stats"><div class="stat-card"><span>Customers</span><strong><?=number_format($stats['users'])?></strong><small>Registered users</small></div><div class="stat-card"><span>Total Orders</span><strong><?=number_format($stats['orders'])?></strong><small><?=number_format($stats['pending_orders'])?> active/pending</small></div><div class="stat-card"><span>Sales</span><strong>৳<?=number_format($stats['revenue'],2)?></strong><small>Recorded order value</small></div><div class="stat-card"><span>Pending Deposits</span><strong><?=number_format($stats['pending_deposits'])?></strong><small>Needs admin action</small></div></div>
+<div class="admin-grid"><div class="card"><div class="toprow"><div><h3>⚡ Quick Actions</h3><p class="muted">যে জায়গায় দ্রুত কাজ করতে চান সেখানে যান।</p></div></div><div class="quick-actions"><a class="btn" href="?page=admin&tab=pricing">💰 Manage Pricing</a><a class="btn green" href="?page=admin&tab=deposits">💳 Review Deposits</a><a class="btn secondary" href="?page=admin&tab=orders">📦 Manage Orders</a><a class="btn secondary" href="?page=admin&tab=users">👥 Manage Users</a></div></div><div class="card"><h3>📡 Provider Status</h3><p class="muted">শেষ 100টি provider order-এর status এক ক্লিকে sync করতে পারবেন।</p><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="refresh_provider_status"><button class="btn" type="submit">↻ Sync Order Status</button></form></div></div>
+<?php elseif($tab==='pricing'):?>
+<div class="admin-grid"><div class="card"><h3>💰 Bulk Pricing</h3><p class="muted">Default customer price-এর উপর percentage দিয়ে একসাথে বহু service price সেট করুন।</p><form method="post" class="price-form"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="bulk_markup"><label>Change %<input class="input" type="number" name="percent" step="0.01" value="10" required></label><label>Platform<select name="scope"><option value="all">All Platforms</option><?php foreach(['youtube','tiktok','instagram','facebook','telegram','twitter','linkedin','discord','spotify','twitch','soundcloud'] as $pl):?><option value="<?=$pl?>"><?=ucfirst($pl)?></option><?php endforeach;?></select></label><button class="btn" type="submit">Apply Bulk Price</button></form></div><div class="card"><h3>📊 Pricing Snapshot</h3><div class="stat-number"><?=count($customPrices)?></div><div class="muted">Custom priced services</div><div class="mini-note">Reset করলে provider rate × USD + markup ফিরে আসবে।</div></div></div>
+<div class="card"><div class="toprow"><h3>Live Service Pricing</h3><input class="input admin-search" id="priceSearch" placeholder="Search service / ID / platform..."></div><div style="overflow:auto"><table class="table" id="priceTable"><tr><th>ID</th><th>Service</th><th>Platform</th><th>Provider Base</th><th>Customer / 1K</th><th>Action</th></tr><?php foreach($services as $as):$asid=(string)($as['service']??'');$default=unitPrice($as,$usd,$markup);$custom=$priceMap[$asid]??null;$pl=platformOf($as);?><tr><td>#<?=e($asid)?></td><td><?=e((string)($as['name']??'Service'))?><div class="small">Min <?=e((string)($as['min']??''))?> • Max <?=e((string)($as['max']??''))?></div></td><td><span class="badge"><?=e(strtoupper($pl))?></span></td><td>৳<?=number_format($default,2)?></td><td><form method="post" class="inline-price-form"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="save_service_price"><input type="hidden" name="service_id" value="<?=e($asid)?>"><input class="input" type="number" name="price" min="0.01" step="0.01" value="<?=e(number_format($custom??$default,2,'.',''))?>" required><button class="btn" type="submit">Save</button></form></td><td><?php if($custom!==null):?><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="delete_service_price"><input type="hidden" name="service_id" value="<?=e($asid)?>"><button class="btn secondary" type="submit">Reset</button></form><?php else:?><span class="muted">Default</span><?php endif;?></td></tr><?php endforeach;?></table></div></div>
+<?php elseif($tab==='deposits'):?>
+<div class="card"><div class="toprow"><div><h3>💳 Deposit Requests</h3><p class="muted">Pending deposit আগে review করুন।</p></div><span class="service-count"><?=count($deps)?> records</span></div><div style="overflow:auto"><table class="table"><tr><th>User</th><th>Method</th><th>Amount</th><th>TRX</th><th>Status</th><th>Action</th></tr><?php foreach($deps as $d):?><tr><td><?=e($d['name'])?><div class="small"><?=e($d['email'])?></div></td><td><?=e($d['method'])?></td><td><b>৳<?=number_format((float)$d['amount'],2)?></b></td><td><code><?=e($d['trx_id'])?></code></td><td><span class="badge status-<?=e(strtolower($d['status']))?>"><?=e($d['status'])?></span></td><td><?php if($d['status']==='pending'):?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="approve_deposit"><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn green">Approve</button></form> <form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="reject_deposit"><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn secondary">Reject</button></form><?php else:?><span class="muted">Reviewed</span><?php endif;?></td></tr><?php endforeach;?></table></div></div>
+<?php elseif($tab==='orders'):?>
+<div class="card"><div class="toprow"><div><h3>📦 Order Management</h3><p class="muted">Customer order status manually update বা provider থেকে sync করুন।</p></div><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="refresh_provider_status"><button class="btn" type="submit">↻ Sync</button></form></div><div style="overflow:auto"><table class="table"><tr><th>ID</th><th>User</th><th>Service</th><th>Qty</th><th>Total</th><th>Provider</th><th>Status</th></tr><?php foreach($orders as $o):?><tr><td>#<?=$o['id']?></td><td><?=e($o['name'])?><div class="small"><?=e($o['email'])?></div></td><td><?=e($o['service_name'])?></td><td><?=number_format((int)$o['quantity'])?></td><td>৳<?=number_format((float)$o['total'],2)?></td><td><?=e($o['provider_order_id']?:'-')?></td><td><form method="post" class="inline-price-form"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="update_order_status"><input type="hidden" name="id" value="<?=$o['id']?>"><select name="status"><option value="Pending" <?=$o['status']==='Pending'?'selected':''?>>Pending</option><option value="Processing" <?=$o['status']==='Processing'?'selected':''?>>Processing</option><option value="In progress" <?=$o['status']==='In progress'?'selected':''?>>In progress</option><option value="Completed" <?=$o['status']==='Completed'?'selected':''?>>Completed</option><option value="Partial" <?=$o['status']==='Partial'?'selected':''?>>Partial</option><option value="Canceled" <?=$o['status']==='Canceled'?'selected':''?>>Canceled</option><option value="Refunded" <?=$o['status']==='Refunded'?'selected':''?>>Refunded</option><option value="Failed" <?=$o['status']==='Failed'?'selected':''?>>Failed</option></select><button class="btn" type="submit">Update</button></form></td></tr><?php endforeach;?></table></div></div>
+<?php elseif($tab==='users'):?>
+<div class="card"><div class="toprow"><div><h3>👥 User Management</h3><p class="muted">Balance adjust, role change এবং account overview।</p></div><input class="input admin-search" id="userSearch" placeholder="Search name / email..."></div><div style="overflow:auto"><table class="table" id="userTable"><tr><th>User</th><th>Balance</th><th>Role</th><th>Adjust Balance</th><th>Role Action</th></tr><?php foreach($users as $usr):?><tr><td><b><?=e($usr['name'])?></b><div class="small"><?=e($usr['email'])?></div><div class="small">Joined <?=e($usr['created_at'])?></div></td><td><strong>৳<?=number_format((float)$usr['balance'],2)?></strong></td><td><span class="badge"><?=e($usr['role'])?></span></td><td><form method="post" class="inline-price-form"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="adjust_balance"><input type="hidden" name="user_id" value="<?=$usr['id']?>"><select name="mode"><option value="add">+ Add</option><option value="subtract">− Subtract</option></select><input class="input" type="number" name="amount" min="0.01" step="0.01" placeholder="Amount" required><button class="btn" type="submit">Apply</button></form></td><td><?php if((int)$usr['id']!==(int)user()['id']):?><form method="post" class="inline-price-form"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="set_user_role"><input type="hidden" name="user_id" value="<?=$usr['id']?>"><select name="role"><option value="customer" <?=$usr['role']==='customer'?'selected':''?>>Customer</option><option value="admin" <?=$usr['role']==='admin'?'selected':''?>>Admin</option></select><button class="btn secondary" type="submit">Set Role</button></form><?php else:?><span class="muted">Current admin</span><?php endif;?></td></tr><?php endforeach;?></table></div></div>
+<?php endif;?>
+<script>
+function filterTable(inputId,tableId){const q=(document.getElementById(inputId)?.value||'').toLowerCase();document.querySelectorAll('#'+tableId+' tr:not(:first-child)').forEach(r=>r.style.display=r.innerText.toLowerCase().includes(q)?'':'none')}
+const ps=document.getElementById('priceSearch');if(ps)ps.oninput=()=>filterTable('priceSearch','priceTable');const us=document.getElementById('userSearch');if(us)us.oninput=()=>filterTable('userSearch','userTable');
+</script>
 <?php else:go('?page=home');endif;?><script>function togglePassword(id,btn){const input=document.getElementById(id);if(!input)return;const show=input.type==='password';input.type=show?'text':'password';btn.textContent=show?'🙈':'👁️';btn.setAttribute('aria-label',show?'Hide password':'Show password');btn.title=show?'Hide password':'Show password';}</script></main></body></html>

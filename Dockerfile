@@ -1,5 +1,7 @@
 FROM php:8.3-apache
 
+RUN apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev libcurl4-openssl-dev && docker-php-ext-install pdo_sqlite sqlite3 && rm -rf /var/lib/apt/lists/*
+
 RUN if ! php -m | grep -qi '^curl$'; then       apt-get update &&       apt-get install -y --no-install-recommends libcurl4-openssl-dev &&       docker-php-ext-install curl &&       rm -rf /var/lib/apt/lists/*;     fi
 
 ENV PORT=10000

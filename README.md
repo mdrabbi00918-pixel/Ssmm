@@ -7,6 +7,10 @@ Full starter reseller panel with:
 - Admin deposit approval/rejection
 - Live SMMSUN service catalog
 - ৳10 markup per 1,000 units
+- Admin can set a custom price per service from the Live Service Pricing table
+- Platform → service-type filters (e.g. TikTok: Followers/Views/Likes/Subscribers; YouTube: Subscribers/Views/Likes)
+- 30-day persistent login with secure, rotating remember token
+- Premium responsive UI with nested service categories
 - Authenticated order placement to SMMSUN API
 - Customer order history
 - Admin recent orders
@@ -25,3 +29,9 @@ Full starter reseller panel with:
 This version uses SQLite for a working prototype. Render's local filesystem is not persistent across all redeploy/restart scenarios. For production, move the database to PostgreSQL before taking real customer payments at scale.
 
 Payment is manual in this version: customers submit amount + transaction ID and an admin approves it. No bKash/Nagad API credentials are included.
+
+### Pricing
+The admin panel loads the live provider catalog and lets the admin set a customer-facing BDT price per 1,000 for each service. Reset removes the override and returns to `rate × USD_TO_BDT + MARKUP_BDT`.
+
+### Persistent login
+Successful logins create a secure 30-day HttpOnly/SameSite remember cookie. The token is stored hashed in SQLite and rotated when restored. Logout revokes the persistent token.
