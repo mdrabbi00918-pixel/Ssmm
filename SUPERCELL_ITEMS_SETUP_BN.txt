@@ -1,0 +1,15 @@
+SUPERCELL ITEMS - SETUP
+
+Category name: Supercell items
+
+Admin Panel -> Supercell Items থেকে:
+1) Item Name
+2) Price (BDT)
+3) Image URL (public https image URL)
+4) Private Item Link (https URL)
+5) Description
+দিয়ে Add Supercell Item চাপুন।
+
+Customer Panel -> Supercell items এ item দেখা যাবে। Customer-এর wallet balance থেকে Buy Now চাপলে price কেটে purchase তৈরি হবে। Payment সফল হওয়ার পর View Item Link / My Purchased Items থেকে link দেখা যাবে। Payment-এর আগে link দেখানো হয় না।
+
+Supabase DATABASE_URL থাকলে products এবং purchases PostgreSQL-এ সংরক্ষিত হবে।

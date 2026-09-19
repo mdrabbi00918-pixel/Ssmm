@@ -1,0 +1,51 @@
+TRUSTED BAZAAR — FINAL RENDER + SUPABASE SETUP
+
+1) Supabase
+- Open your Supabase project.
+- Connect > Session pooler > URI.
+- Copy the PostgreSQL connection string.
+- Do NOT publish it or put it in GitHub.
+
+2) Render Environment Variables
+Set these in the Render Web Service:
+
+DATABASE_URL = <Supabase Session Pooler URI>
+SMM_API_URL = https://my.smmsun.com/api/v2
+SMM_API_KEY = <your my.smmsun API key>
+ADMIN_EMAIL = <your admin email>
+ADMIN_PASSWORD = <a strong admin password>
+USD_TO_BDT = 122
+MARKUP_BDT = 10
+
+3) Important
+- The ZIP does NOT contain your database password or SMM API key.
+- Do not use a customer's real Gmail password on this website. Customers should use a separate website password.
+- Customer passwords are stored as secure password hashes.
+- Login remember tokens are stored in PostgreSQL and rotate automatically.
+- PostgreSQL tables are created automatically on first successful connection.
+
+4) Services
+Only the requested customer service IDs are visible/orderable in Customer Panel:
+1086,1076,1762,104,105,1367,1368,664,665,3901,3902,851,854,1049,242,125,133,1205,265,234,463,448,1050,474,462,476,3847,531,537,2600,629,3313,2194,2945,369,1722,1726,9445,9453,1849
+
+5) Existing features kept
+- Trusted Bazaar branding
+- Separate Customer/Admin panels
+- Rainbow design
+- Payment number settings
+- bKash/Nagad deposit requests with Approve/Reject
+- Admin role management
+- Service pricing
+- Order status refresh
+- Selected-service allowlist
+
+6) If an API key is missing
+Orders/services will show a provider configuration error until SMM_API_KEY is entered in Render. This is intentional and prevents exposing the secret in the ZIP.
+
+
+PERSISTENT LOGIN / DEPLOY NOTE
+- Production requires DATABASE_URL; the app will NOT fall back to a fresh JSON database if DATABASE_URL is missing.
+- Customer accounts/password hashes, orders, deposits, Supercell items and purchases are stored in Supabase PostgreSQL.
+- PHP sessions are also stored under /var/www/html/data/sessions on the Render persistent disk.
+- Remember-login tokens are stored in Supabase for 30 days and are rotated automatically.
+- Therefore a GitHub push or Render redeploy does not reset customer accounts or passwords.

@@ -11,14 +11,20 @@ services:
     envVars:
       - key: PORT
         value: "10000"
+      - key: APP_ENV
+        value: production
+      - key: SESSION_SAVE_PATH
+        value: /var/www/html/data/sessions
       - key: DB_DIR
         value: /var/www/html/data
       - key: USD_TO_BDT
         value: "122"
       - key: MARKUP_BDT
         value: "10"
-      - key: SMM_API_URL
+      - key: DATABASE_URL
         sync: false
+      - key: SMM_API_URL
+        value: https://my.smmsun.com/api/v2
       - key: SMM_API_KEY
         sync: false
       - key: ADMIN_EMAIL
