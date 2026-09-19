@@ -1,156 +1,49 @@
 <?php
 declare(strict_types=1);
-// Persistent authentication cookie (30 days) + secure session settings.
 $secureCookie = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
-session_set_cookie_params([
-  'lifetime' => 60 * 60 * 24 * 30,
-  'path' => '/',
-  'secure' => $secureCookie,
-  'httponly' => true,
-  'samesite' => 'Lax'
-]);
+session_set_cookie_params(['lifetime'=>60*60*24*30,'path'=>'/','secure'=>$secureCookie,'httponly'=>true,'samesite'=>'Lax']);
 session_start();
-
+require __DIR__ . '/JsonStore.php';
 require __DIR__ . '/SmmsunClient.php';
-
-$dbDir = getenv('DB_DIR') ?: __DIR__ . '/data';
-if (!is_dir($dbDir)) @mkdir($dbDir, 0775, true);
-$db = new PDO('sqlite:' . $dbDir . '/panel.sqlite');
-$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-$db->exec("PRAGMA foreign_keys = ON;");
-$db->exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, balance REAL NOT NULL DEFAULT 0, role TEXT NOT NULL DEFAULT 'customer', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
-$db->exec("CREATE TABLE IF NOT EXISTS deposits (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, method TEXT NOT NULL, amount REAL NOT NULL, trx_id TEXT NOT NULL, note TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))");
-$db->exec("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, service_id TEXT NOT NULL, service_name TEXT NOT NULL, link TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL, total REAL NOT NULL, provider_order_id TEXT, status TEXT NOT NULL DEFAULT 'Pending', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))");
-$db->exec("CREATE TABLE IF NOT EXISTS service_prices (service_id TEXT PRIMARY KEY, price REAL NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
-$db->exec("CREATE TABLE IF NOT EXISTS remember_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, token_hash TEXT UNIQUE NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
-
-$adminEmail = getenv('ADMIN_EMAIL') ?: 'admin@sumonvai.local';
-$adminPass = getenv('ADMIN_PASSWORD') ?: 'ChangeMe123!';
-$minDeposit=50.0;
-$paymentNumbers=['bKash'=>'01782242264','Nagad'=>'01887928771'];
-$st = $db->prepare('SELECT id FROM users WHERE email=?'); $st->execute([$adminEmail]);
-if (!$st->fetchColumn()) {
-  $st=$db->prepare('INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)');
-  $st->execute(['Admin',$adminEmail,password_hash($adminPass,PASSWORD_DEFAULT),'admin']);
+$dbDir=getenv('DB_DIR')?:__DIR__.'/data';
+$store=new JsonStore($dbDir);
+$adminEmail=getenv('ADMIN_EMAIL')?:'admin@sumonvai.local';
+$adminPass=getenv('ADMIN_PASSWORD')?:'ChangeMe123!';
+$minDeposit=50.0;$paymentNumbers=['bKash'=>'01782242264','Nagad'=>'01887928771'];
+if(!$store->findUserByEmail($adminEmail)){$store->createUser('Admin',$adminEmail,password_hash($adminPass,PASSWORD_DEFAULT),'admin');}
+function e(string $s):string{return htmlspecialchars($s,ENT_QUOTES,'UTF-8');}
+function user():?array{return $_SESSION['user']??null;}
+function go(string $url):never{header('Location: '.$url);exit;}
+function flash(?string $msg=null):?string{if($msg!==null){$_SESSION['flash']=$msg;return null;}$x=$_SESSION['flash']??null;unset($_SESSION['flash']);return $x;}
+function csrf():string{if(empty($_SESSION['csrf']))$_SESSION['csrf']=bin2hex(random_bytes(16));return $_SESSION['csrf'];}
+function checkCsrf():void{if(!hash_equals($_SESSION['csrf']??'',$_POST['csrf']??''))die('Invalid request');}
+function setRememberCookie(string $token,int $expires):void{global $secureCookie;setcookie('sv_remember',$token,['expires'=>$expires,'path'=>'/','secure'=>$secureCookie,'httponly'=>true,'samesite'=>'Lax']);}
+function clearRememberCookie():void{global $secureCookie;setcookie('sv_remember','',['expires'=>time()-3600,'path'=>'/','secure'=>$secureCookie,'httponly'=>true,'samesite'=>'Lax']);}
+function restoreRememberedUser(JsonStore $store):void{if(user()||empty($_COOKIE['sv_remember']))return;$hash=hash('sha256',(string)$_COOKIE['sv_remember']);$u=$store->restoreToken($hash);if($u){session_regenerate_id(true);$_SESSION['user']=$u;$store->deleteRememberHash($hash);$token=bin2hex(random_bytes(32));$store->addRemember((int)$u['id'],hash('sha256',$token),time()+60*60*24*30);setRememberCookie($token,time()+60*60*24*30);}else clearRememberCookie();}
+restoreRememberedUser($store);
+function needLogin():void{if(!user())go('?page=login');}
+function needAdmin():void{needLogin();if((user()['role']??'')!=='admin')go('?page=home');}
+if($_SERVER['REQUEST_METHOD']==='POST'){
+ checkCsrf();$action=$_POST['action']??'';
+ if($action==='register'){ $name=trim((string)($_POST['name']??''));$email=strtolower(trim((string)($_POST['email']??'')));$pass=(string)($_POST['password']??'');if($name===''||!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($pass)<6){flash('সঠিক তথ্য দিন। পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।');go('?page=register');}try{$store->createUser($name,$email,password_hash($pass,PASSWORD_DEFAULT));flash('Account তৈরি হয়েছে। এখন Login করুন।');go('?page=login');}catch(Throwable $x){flash('এই email দিয়ে account আগে থেকেই থাকতে পারে।');go('?page=register');}}
+ if($action==='login'){ $email=strtolower(trim((string)($_POST['email']??'')));$pass=(string)($_POST['password']??'');$u=$store->findUserByEmail($email);if($u&&password_verify($pass,(string)$u['password'])){if(password_needs_rehash((string)$u['password'],PASSWORD_DEFAULT)){$new=password_hash($pass,PASSWORD_DEFAULT);$u=$store->updateUser((int)$u['id'],['password'=>$new])??$u;}$store->rememberForUser((int)$u['id']);session_regenerate_id(true);$_SESSION['user']=$u;$token=bin2hex(random_bytes(32));$store->addRemember((int)$u['id'],hash('sha256',$token),time()+60*60*24*30);setRememberCookie($token,time()+60*60*24*30);go('?page=dashboard');}flash('Email অথবা password সঠিক নয়। Account না থাকলে Register করুন।');go('?page=login');}
+ if($action==='logout'){if(user())$store->rememberForUser((int)user()['id']);clearRememberCookie();$_SESSION=[];session_destroy();go('?page=home');}
+ if($action==='deposit'){needLogin();$amount=(float)($_POST['amount']??0);$method=trim((string)($_POST['method']??''));$trx=trim((string)($_POST['trx_id']??''));if($amount<$minDeposit){flash('সর্বনিম্ন Deposit ৳50।');go('?page=deposit');}if(!array_key_exists($method,$paymentNumbers)||$trx===''){flash('সঠিক payment method ও Transaction ID দিন।');go('?page=deposit');}$store->addDeposit((int)user()['id'],$method,$amount,$trx,trim((string)($_POST['note']??'')));flash('Deposit request জমা হয়েছে। Admin approve করলে balance যোগ হবে।');go('?page=deposit');}
+ if($action==='order'){needLogin();$sid=trim((string)($_POST['service_id']??''));$link=trim((string)($_POST['link']??''));$qty=(int)($_POST['quantity']??0);$name=trim((string)($_POST['service_name']??''));$override=$store->price($sid);$price=$override!==null?$override:(float)($_POST['unit_price']??0);if($sid===''||$link===''||$qty<=0||$price<=0){flash('Order তথ্য সঠিক নয়।');go('?page=services');}$total=round($price*$qty/1000,2);$current=$store->findUser((int)user()['id']);if(!$current||((float)$current['balance']<$total)){flash('Balance কম। আগে Deposit করুন।');go('?page=deposit');}$api=new SmmsunClient(getenv('SMM_API_URL')?:'https://my.smmsun.com/api/v2',getenv('SMM_API_KEY')?:'');$resp=$api->addOrder($sid,$link,$qty);if(isset($resp['error'])){flash('Provider order failed: '.($resp['error']));go('?page=services');}$providerId=(string)($resp['order']??'');$order=$store->createOrder((int)user()['id'],$sid,$name,$link,$qty,$price,$total,$providerId,$providerId?'Pending':'Submitted');if(!$order){flash('Balance কম। Order তৈরি হয়নি।');go('?page=deposit');}flash('Order সফলভাবে পাঠানো হয়েছে। Order ID: '.($providerId?:'pending'));go('?page=orders');}
+ if($action==='save_service_price'){needAdmin();$sid=trim((string)($_POST['service_id']??''));$price=(float)($_POST['price']??0);if($sid===''||$price<=0){flash('Valid price দিন।');go('?page=admin');}$store->setPrice($sid,$price);flash('Service price আপডেট হয়েছে।');go('?page=admin');}
+ if($action==='delete_service_price'){needAdmin();$store->deletePrice(trim((string)($_POST['service_id']??'')));flash('Custom price reset হয়েছে।');go('?page=admin');}
+ if($action==='approve_deposit'){needAdmin();$store->approveDeposit((int)($_POST['id']??0));go('?page=admin');}
+ if($action==='reject_deposit'){needAdmin();$store->rejectDeposit((int)($_POST['id']??0));go('?page=admin');}
 }
-
-function e(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
-function user(): ?array { return $_SESSION['user'] ?? null; }
-function go(string $url): never { header('Location: '.$url); exit; }
-function flash(?string $msg=null): ?string { if($msg!==null){$_SESSION['flash']=$msg; return null;} $x=$_SESSION['flash']??null; unset($_SESSION['flash']); return $x; }
-function csrf(): string { if(empty($_SESSION['csrf'])) $_SESSION['csrf']=bin2hex(random_bytes(16)); return $_SESSION['csrf']; }
-function checkCsrf(): void { if(!hash_equals($_SESSION['csrf']??'', $_POST['csrf']??'')) die('Invalid request'); }
-function setRememberCookie(string $token, int $expires): void {
-  global $secureCookie;
-  setcookie('sv_remember', $token, ['expires'=>$expires,'path'=>'/','secure'=>$secureCookie,'httponly'=>true,'samesite'=>'Lax']);
-}
-function clearRememberCookie(): void {
-  global $secureCookie;
-  setcookie('sv_remember','',['expires'=>time()-3600,'path'=>'/','secure'=>$secureCookie,'httponly'=>true,'samesite'=>'Lax']);
-}
-function restoreRememberedUser(PDO $db): void {
-  if (user() || empty($_COOKIE['sv_remember'])) return;
-  $hash=hash('sha256',(string)$_COOKIE['sv_remember']);
-  $st=$db->prepare('SELECT u.* FROM remember_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=? AND t.expires_at>? LIMIT 1');
-  $st->execute([$hash,time()]); $u=$st->fetch(PDO::FETCH_ASSOC);
-  if($u){
-    session_regenerate_id(true); $_SESSION['user']=$u;
-    // Rotate the persistent token on successful restore.
-    $db->prepare('DELETE FROM remember_tokens WHERE token_hash=?')->execute([$hash]);
-    $token=bin2hex(random_bytes(32));
-    $db->prepare('INSERT INTO remember_tokens(user_id,token_hash,expires_at) VALUES(?,?,?)')->execute([$u['id'],hash('sha256',$token),time()+60*60*24*30]);
-    setRememberCookie($token,time()+60*60*24*30);
-  } else { clearRememberCookie(); }
-}
-restoreRememberedUser($db);
-function needLogin(): void { if(!user()) go('?page=login'); }
-function needAdmin(): void { needLogin(); if((user()['role']??'')!=='admin') go('?page=home'); }
-
-if($_SERVER['REQUEST_METHOD']==='POST') {
-  checkCsrf(); $action=$_POST['action']??'';
-  if($action==='register'){
-    $name=trim($_POST['name']??''); $email=strtolower(trim($_POST['email']??'')); $pass=$_POST['password']??'';
-    if($name===''||!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($pass)<6){flash('সঠিক তথ্য দিন। পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।');go('?page=register');}
-    try{$st=$db->prepare('INSERT INTO users(name,email,password) VALUES(?,?,?)');$st->execute([$name,$email,password_hash($pass,PASSWORD_DEFAULT)]);flash('Account তৈরি হয়েছে। এখন Login করুন।');go('?page=login');}catch(Throwable $x){flash('এই email দিয়ে account আগে থেকেই থাকতে পারে।');go('?page=register');}
-  }
-  if($action==='login'){
-    $email=strtolower(trim((string)($_POST['email']??'')));$pass=(string)($_POST['password']??'');
-    if(!filter_var($email,FILTER_VALIDATE_EMAIL)||$pass===''){flash('সঠিক email ও password দিন।');go('?page=login');}
-    $st=$db->prepare('SELECT * FROM users WHERE lower(email)=lower(?) LIMIT 1');$st->execute([$email]);$u=$st->fetch(PDO::FETCH_ASSOC);
-    if($u && password_verify($pass,(string)$u['password'])){
-      if(password_needs_rehash((string)$u['password'],PASSWORD_DEFAULT)){$db->prepare('UPDATE users SET password=? WHERE id=?')->execute([password_hash($pass,PASSWORD_DEFAULT),$u['id']]);$u['password']=password_hash($pass,PASSWORD_DEFAULT);}
-      session_regenerate_id(true);$_SESSION['user']=$u;
-      $token=bin2hex(random_bytes(32));
-      $db->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([$u['id']]);
-      $db->prepare('INSERT INTO remember_tokens(user_id,token_hash,expires_at) VALUES(?,?,?)')->execute([$u['id'],hash('sha256',$token),time()+60*60*24*30]);
-      setRememberCookie($token,time()+60*60*24*30);
-      go('?page=dashboard');
-    }
-    flash('Email অথবা password সঠিক নয়। Account না থাকলে Register করুন।');go('?page=login');
-  }
-  if($action==='logout'){
-    if(user()) $db->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([user()['id']]);
-    clearRememberCookie(); $_SESSION=[]; session_destroy(); go('?page=home');
-  }
-  if($action==='deposit'){
-    needLogin();$amount=(float)($_POST['amount']??0);$method=trim((string)($_POST['method']??''));$trx=trim((string)($_POST['trx_id']??''));
-    if($amount<$minDeposit){flash('সর্বনিম্ন Deposit ৳50।');go('?page=deposit');}
-    if(!array_key_exists($method,$paymentNumbers)||$trx===''){flash('সঠিক payment method ও Transaction ID দিন।');go('?page=deposit');}
-    $st=$db->prepare('INSERT INTO deposits(user_id,method,amount,trx_id,note) VALUES(?,?,?,?,?)');$st->execute([user()['id'],$method,$amount,$trx,trim((string)($_POST['note']??''))]);flash('Deposit request জমা হয়েছে। Admin approve করলে balance যোগ হবে।');go('?page=deposit');
-  }
-  if($action==='order'){
-    needLogin();$sid=trim($_POST['service_id']??'');$link=trim($_POST['link']??'');$qty=(int)($_POST['quantity']??0);$name=trim($_POST['service_name']??'');
-    $st=$db->prepare('SELECT price FROM service_prices WHERE service_id=?');$st->execute([$sid]);$override=$st->fetchColumn();
-    $price=$override!==false?(float)$override:(float)($_POST['unit_price']??0);
-    if($sid===''||$link===''||$qty<=0||$price<=0){flash('Order তথ্য সঠিক নয়।');go('?page=services');}
-    $total=round($price*$qty/1000,2);$st=$db->prepare('SELECT balance FROM users WHERE id=?');$st->execute([user()['id']]);$bal=(float)$st->fetchColumn();
-    if($bal<$total){flash('Balance কম। আগে Deposit করুন।');go('?page=deposit');}
-    $api=new SmmsunClient(getenv('SMM_API_URL')?:'https://my.smmsun.com/api/v2',getenv('SMM_API_KEY')?:'');
-    $resp=$api->addOrder($sid,$link,$qty);
-    if(isset($resp['error'])){flash('Provider order failed: '.($resp['error']));go('?page=services');}
-    $providerId=(string)($resp['order']??'');
-    $db->beginTransaction();$st=$db->prepare('UPDATE users SET balance=balance-? WHERE id=?');$st->execute([$total,user()['id']]);$st=$db->prepare('INSERT INTO orders(user_id,service_id,service_name,link,quantity,unit_price,total,provider_order_id,status) VALUES(?,?,?,?,?,?,?,?,?)');$st->execute([user()['id'],$sid,$name,$link,$qty,$price,$total,$providerId,$providerId?'Pending':'Submitted']);$db->commit();flash('Order সফলভাবে পাঠানো হয়েছে। Order ID: '.($providerId?:'pending'));go('?page=orders');
-  }
-  if($action==='save_service_price'){
-    needAdmin(); $sid=trim((string)($_POST['service_id']??'')); $price=(float)($_POST['price']??0);
-    if($sid==='' || $price<=0){flash('সঠিক Service ID ও Price দিন।');go('?page=admin');}
-    $st=$db->prepare('INSERT INTO service_prices(service_id,price,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(service_id) DO UPDATE SET price=excluded.price, updated_at=CURRENT_TIMESTAMP');
-    $st->execute([$sid,$price]); flash('Service price আপডেট হয়েছে।'); go('?page=admin');
-  }
-  if($action==='delete_service_price'){
-    needAdmin(); $sid=trim((string)($_POST['service_id']??'')); $db->prepare('DELETE FROM service_prices WHERE service_id=?')->execute([$sid]); flash('Custom price সরিয়ে provider price + markup ব্যবহার করা হবে।'); go('?page=admin');
-  }
-  if($action==='approve_deposit'){
-    needAdmin();$id=(int)$_POST['id'];$st=$db->prepare('SELECT * FROM deposits WHERE id=?');$st->execute([$id]);$d=$st->fetch(PDO::FETCH_ASSOC);if($d&&$d['status']==='pending'){$db->beginTransaction();$db->prepare("UPDATE deposits SET status='approved' WHERE id=?")->execute([$id]);$db->prepare('UPDATE users SET balance=balance+? WHERE id=?')->execute([$d['amount'],$d['user_id']]);$db->commit();}go('?page=admin');
-  }
-  if($action==='reject_deposit'){needAdmin();$db->prepare("UPDATE deposits SET status='rejected' WHERE id=? AND status='pending'")->execute([(int)$_POST['id']]);go('?page=admin');}
-}
-
-$page=$_GET['page']??(user()?'dashboard':'login');
-if(!user() && !in_array($page,['login','register'],true)){go('?page=login');}
-$usd=(float)(getenv('USD_TO_BDT')?:122);$markup=(float)(getenv('MARKUP_BDT')?:10);
-$services=[];$apiError='';
-if(in_array($page,['services','home','dashboard','admin'],true)){
-  try{$api=new SmmsunClient(getenv('SMM_API_URL')?:'https://my.smmsun.com/api/v2',getenv('SMM_API_KEY')?:'');$r=$api->services();if(isset($r['error']))$apiError=$r['error'];else $services=is_array($r)?$r:[];}catch(Throwable $x){$apiError='Service API unavailable';}
-}
-if(user()){ $st=$db->prepare('SELECT * FROM users WHERE id=?');$st->execute([user()['id']]);$_SESSION['user']=$st->fetch(PDO::FETCH_ASSOC); }
+$page=$_GET['page']??'home';
+if(!user()&&!in_array($page,['login','register'],true))go('?page=login');
+$usd=(float)(getenv('USD_TO_BDT')?:122);$markup=(float)(getenv('MARKUP_BDT')?:10);$services=[];$apiError='';
+if(in_array($page,['services','home','dashboard','admin'],true)){try{$api=new SmmsunClient(getenv('SMM_API_URL')?:'https://my.smmsun.com/api/v2',getenv('SMM_API_KEY')?:'');$r=$api->services();if(isset($r['error']))$apiError=$r['error'];else $services=is_array($r)?$r:[];}catch(Throwable $x){$apiError='Service API unavailable';}}
+if(user())$_SESSION['user']=$store->findUser((int)user()['id'])??user();
 $u=user();
-function unitPrice(array $s,float $usd,float $markup,?float $override=null): float{return $override!==null?$override:(float)($s['rate']??0)*$usd+$markup;}
-function platformOf(array $s): string {
-  $raw=strtolower(($s['name']??'').' '.($s['category']??'').' '.($s['service']??''));
-  $map=['youtube'=>['youtube','youtu.be'],'facebook'=>['facebook','fb'],'instagram'=>['instagram','ig'],'tiktok'=>['tiktok','tik tok'],'telegram'=>['telegram','tg'],'twitter'=>['twitter',' x '],'linkedin'=>['linkedin'],'discord'=>['discord'],'spotify'=>['spotify'],'twitch'=>['twitch'],'soundcloud'=>['soundcloud']];
-  foreach($map as $k=>$words) foreach($words as $w) if(str_contains($raw,$w)) return $k;
-  return 'other';
-}
-function serviceTypeOf(array $s,string $platform): string {
-  $raw=strtolower(($s['name']??'').' '.($s['category']??''));
-  $types=['followers'=>'Followers','subscribers'=>'Subscribers','views'=>'Views','likes'=>'Likes','comments'=>'Comments','shares'=>'Shares','watch time'=>'Watch Time','members'=>'Members','saves'=>'Saves','story views'=>'Story Views','reactions'=>'Reactions','engagement'=>'Engagement'];
-  foreach($types as $needle=>$label) if(str_contains($raw,$needle)) return $label;
-  if($platform==='youtube') { if(str_contains($raw,'sub')) return 'Subscribers'; if(str_contains($raw,'view')) return 'Views'; if(str_contains($raw,'like')) return 'Likes'; }
-  if($platform==='tiktok') { if(str_contains($raw,'sub')) return 'Subscribers'; if(str_contains($raw,'view')) return 'Views'; if(str_contains($raw,'like')) return 'Likes'; if(str_contains($raw,'follow')) return 'Followers'; }
-  if($platform==='instagram' && str_contains($raw,'follow')) return 'Followers';
-  return 'Other';
-}
+function unitPrice(array $s,float $usd,float $markup,?float $override=null):float{return $override!==null?$override:(float)($s['rate']??0)*$usd+$markup;}
+function platformOf(array $s):string{$raw=strtolower(($s['name']??'').' '.($s['category']??'').' '.($s['service']??''));$map=['youtube'=>['youtube','youtu.be'],'facebook'=>['facebook','fb'],'instagram'=>['instagram','ig'],'tiktok'=>['tiktok','tik tok'],'telegram'=>['telegram','tg'],'twitter'=>['twitter',' x '],'linkedin'=>['linkedin'],'discord'=>['discord'],'spotify'=>['spotify'],'twitch'=>['twitch'],'soundcloud'=>['soundcloud']];foreach($map as $k=>$words)foreach($words as $w)if(str_contains($raw,$w))return $k;return 'other';}
+function serviceTypeOf(array $s,string $platform):string{$raw=strtolower(($s['name']??'').' '.($s['category']??''));$types=['followers'=>'Followers','subscribers'=>'Subscribers','views'=>'Views','likes'=>'Likes','comments'=>'Comments','shares'=>'Shares','watch time'=>'Watch Time','members'=>'Members','saves'=>'Saves','story views'=>'Story Views','reactions'=>'Reactions','engagement'=>'Engagement'];foreach($types as $needle=>$label)if(str_contains($raw,$needle))return $label;if($platform==='youtube'){if(str_contains($raw,'sub'))return 'Subscribers';if(str_contains($raw,'view'))return 'Views';if(str_contains($raw,'like'))return 'Likes';}if($platform==='tiktok'){if(str_contains($raw,'sub'))return 'Subscribers';if(str_contains($raw,'view'))return 'Views';if(str_contains($raw,'like'))return 'Likes';if(str_contains($raw,'follow'))return 'Followers';}if($platform==='instagram'&&str_contains($raw,'follow'))return 'Followers';return 'Other';}
 ?><!doctype html><html lang="bn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>সুমন ভাই Panel</title><style>
 :root{--primary:#6d5dfc;--primary2:#8b5cf6;--accent:#06b6d4;--dark:#101828;--text:#182033;--muted:#667085;--surface:#ffffff;--line:#e7eaf0;--shadow:0 18px 50px rgba(16,24,40,.09)}
 *{box-sizing:border-box}
@@ -183,7 +76,7 @@ button,input,select,textarea{font:inherit}
 </div><div class="subcategory-bar" id="subcategoryBar"></div></div>
 <div class="grid" id="services">
 <?php foreach($services as $s):
-  $sid=(string)($s['service']??''); $stp=$db->prepare('SELECT price FROM service_prices WHERE service_id=?');$stp->execute([$sid]);$ov=$stp->fetchColumn();$ov=$ov===false?null:(float)$ov;
+  $sid=(string)($s['service']??''); $ov=$store->price($sid);
   $p=unitPrice($s,$usd,$markup,$ov); $raw=strtolower(($s['name']??'').' '.($s['category']??'').' '.$sid); $platform=platformOf($s); $stype=serviceTypeOf($s,$platform);
 ?>
 <div class="card service-card service-item" data-search="<?=e($raw)?>" data-platform="<?=e($platform)?>" data-type="<?=e(strtolower($stype))?>">
@@ -204,11 +97,13 @@ function openOrder(id,name,p,min,max){document.getElementById('modal').style.dis
 function closeOrder(){document.getElementById('modal').style.display='none'}function calc(){let q=+document.getElementById('qty').value||0,p=+document.getElementById('price').value||0;document.getElementById('total').innerText='৳'+(q*p/1000).toFixed(2)}drawTypes();renderServices();
 </script>
 <?php elseif($page==='deposit'):needLogin();?><div class="card form"><h2>Deposit Request</h2><div class="payment-box"><div><b>bKash</b><div class="payment-number">01782242264</div></div><div><b>Nagad</b><div class="payment-number">01887928771</div></div><div class="muted">Send Money করার পর Transaction ID দিন। সর্বনিম্ন Deposit: <b>৳50</b></div></div><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="deposit"><label>Payment Method</label><select name="method" id="paymentMethod" required><option value="bKash">bKash — 01782242264</option><option value="Nagad">Nagad — 01887928771</option></select><label>Amount (BDT)</label><input class="input" type="number" min="50" step="0.01" name="amount" required><div class="muted">Minimum deposit ৳50</div><label>Transaction ID</label><input class="input" name="trx_id" required><label>Note</label><textarea class="input" name="note"></textarea><button class="btn green">Submit Deposit</button></form></div>
-<?php elseif($page==='orders'):needLogin();$st=$db->prepare('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC');$st->execute([$u['id']]);$rows=$st->fetchAll(PDO::FETCH_ASSOC);?><div class="toprow"><h2>My Orders</h2><a class="btn" href="?page=services">New Order</a></div><div style="overflow:auto"><table class="table"><tr><th>ID</th><th>Service</th><th>Qty</th><th>Total</th><th>Status</th><th>Date</th></tr><?php foreach($rows as $r):?><tr><td>#<?=e((string)$r['id'])?><?php if($r['provider_order_id']):?><div class="small">Provider: <?=e($r['provider_order_id'])?></div><?php endif;?></td><td><?=e($r['service_name'])?></td><td><?=e((string)$r['quantity'])?></td><td>৳<?=number_format((float)$r['total'],2)?></td><td><span class="badge"><?=e($r['status'])?></span></td><td><?=e($r['created_at'])?></td></tr><?php endforeach;?></table></div>
-<?php elseif($page==='admin'):needAdmin();$deps=$db->query("SELECT d.*,u.name,u.email FROM deposits d JOIN users u ON u.id=d.user_id ORDER BY d.id DESC")->fetchAll(PDO::FETCH_ASSOC);$orders=$db->query("SELECT o.*,u.name FROM orders o JOIN users u ON u.id=o.user_id ORDER BY o.id DESC LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);$customPrices=$db->query("SELECT * FROM service_prices ORDER BY updated_at DESC")->fetchAll(PDO::FETCH_ASSOC);?><div class="toprow"><div><div class="eyebrow">CONTROL CENTER</div><h2>Admin Panel</h2></div><span class="admin-chip">● <?=e($adminEmail)?></span></div>
-<div class="admin-grid"><div class="card"><h3>💰 Service Price Control</h3><p class="muted">নিচের Live Service Catalog থেকে যেকোনো service-এর customer price সরাসরি বাড়ানো/কমানো যাবে। Custom price না দিলে provider rate × USD + markup ব্যবহার হবে।</p><div class="mini-note"><?=count($services)?>টি live service পাওয়া গেছে • Price / 1,000 হিসেবে সেট করুন</div></div>
-<div class="card"><h3>📊 Pricing Overview</h3><div class="stat-number"><?=count($customPrices)?></div><div class="muted">Custom priced services</div><div class="mini-note">Reset করলে ওই service আবার default provider pricing ব্যবহার করবে।</div></div></div>
-<h3 class="section-title">Live Service Pricing</h3><div style="overflow:auto"><table class="table"><tr><th>ID</th><th>Service</th><th>Platform</th><th>Default</th><th>Customer Price / 1K</th><th>Save</th></tr><?php foreach($services as $as):$asid=(string)($as['service']??'');$pst=$db->prepare('SELECT price FROM service_prices WHERE service_id=?');$pst->execute([$asid]);$custom=$pst->fetchColumn();$default=unitPrice($as,$usd,$markup);?><tr><td>#<?=e($asid)?></td><td><?=e((string)($as['name']??'Service'))?><div class="small">Min <?=e((string)($as['min']??''))?> • Max <?=e((string)($as['max']??''))?></div></td><td><span class="badge"><?=e(strtoupper(platformOf($as)))?></span></td><td>৳<?=number_format($default,2)?></td><td><form method="post" class="inline-price-form"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="save_service_price"><input type="hidden" name="service_id" value="<?=e($asid)?>"><input class="input" type="number" name="price" min="0.01" step="0.01" value="<?=e(number_format($custom!==false?(float)$custom:$default,2,'.',''))?>" required><button class="btn" type="submit">Save</button></form></td><td><?php if($custom!==false):?><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="delete_service_price"><input type="hidden" name="service_id" value="<?=e($asid)?>"><button class="btn secondary" type="submit">Reset</button></form><?php else:?><span class="muted">Default</span><?php endif;?></td></tr><?php endforeach;?></table></div>
-<h3 class="section-title">Deposit Requests</h3><div style="overflow:auto"><table class="table"><tr><th>User</th><th>Method</th><th>Amount</th><th>TRX</th><th>Status</th><th>Action</th></tr><?php foreach($deps as $d):?><tr><td><?=e($d['name'])?><div class="small"><?=e($d['email'])?></div></td><td><?=e($d['method'])?></td><td>৳<?=number_format((float)$d['amount'],2)?></td><td><?=e($d['trx_id'])?></td><td><?=e($d['status'])?></td><td><?php if($d['status']==='pending'):?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="approve_deposit"><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn green">Approve</button></form> <form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="reject_deposit"><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn secondary">Reject</button></form><?php endif;?></td></tr><?php endforeach;?></table></div>
-<h3 class="section-title">Recent Orders</h3><div style="overflow:auto"><table class="table"><tr><th>ID</th><th>User</th><th>Service</th><th>Qty</th><th>Total</th><th>Provider</th></tr><?php foreach($orders as $o):?><tr><td>#<?=$o['id']?></td><td><?=e($o['name'])?></td><td><?=e($o['service_name'])?></td><td><?=$o['quantity']?></td><td>৳<?=number_format((float)$o['total'],2)?></td><td><?=e($o['provider_order_id']?:'-')?></td></tr><?php endforeach;?></table></div>
+<?php elseif($page==='orders'):needLogin();$rows=$store->userOrders((int)$u['id']);?><div class="toprow"><h2>My Orders</h2><a class="btn" href="?page=services">New Order</a></div><div style="overflow:auto"><table class="table"><tr><th>ID</th><th>Service</th><th>Qty</th><th>Total</th><th>Status</th><th>Date</th></tr><?php foreach($rows as $r):?><tr><td>#<?=e((string)$r['id'])?><?php if($r['provider_order_id']):?><div class="small">Provider: <?=e($r['provider_order_id'])?></div><?php endif;?></td><td><?=e($r['service_name'])?></td><td><?=e((string)$r['quantity'])?></td><td>৳<?=number_format((float)$r['total'],2)?></td><td><span class="badge"><?=e($r['status'])?></span></td><td><?=e($r['created_at'])?></td></tr><?php endforeach;?></table></div>
+<?php elseif($page==='admin'):needAdmin();$deps=$store->adminDeposits();$orders=$store->adminOrders();$customPrices=$store->allPrices();$stats=$store->counts();?>
+<div class="toprow"><div><div class="eyebrow">CONTROL CENTER</div><h2>Advanced Admin Panel</h2><div class="muted">Pricing, deposits, orders এবং store health এক জায়গা থেকে পরিচালনা করুন।</div></div><span class="admin-chip">● <?=e($adminEmail)?></span></div>
+<div class="admin-grid"><div class="card"><h3>📊 Overview</h3><div class="grid" style="margin-top:14px"><div><div class="muted">Users</div><div class="stat-number" style="font-size:30px"><?=e((string)$stats['users'])?></div></div><div><div class="muted">Orders</div><div class="stat-number" style="font-size:30px"><?=e((string)$stats['orders'])?></div></div><div><div class="muted">Pending Deposits</div><div class="stat-number" style="font-size:30px"><?=e((string)$stats['deposits_pending'])?></div></div><div><div class="muted">Sales</div><div class="stat-number" style="font-size:30px">৳<?=number_format((float)$stats['sales'],2)?></div></div></div></div>
+<div class="card"><h3>💰 Pricing Control</h3><div class="stat-number"><?=count($customPrices)?></div><div class="muted">Custom priced services</div><div class="mini-note">Custom price দিলে customer সেই দামেই order করবে। Reset করলে provider rate + markup ফিরে আসবে।</div></div></div>
+<h3 class="section-title">Live Service Pricing</h3><div class="service-tools"><input class="input" id="adminPriceSearch" placeholder="🔎 Search service by name, platform or ID..." style="margin:0"></div><div style="overflow:auto"><table class="table" id="priceTable"><tr><th>ID</th><th>Service</th><th>Platform</th><th>Default</th><th>Customer Price / 1K</th><th>Action</th></tr><?php foreach($services as $as):$asid=(string)($as['service']??'');$custom=$store->price($asid);$default=unitPrice($as,$usd,$markup);?><tr class="price-row" data-search="<?=e(strtolower(($as['name']??'').' '.platformOf($as).' '.$asid))?>"><td>#<?=e($asid)?></td><td><?=e((string)($as['name']??'Service'))?><div class="small">Min <?=e((string)($as['min']??''))?> • Max <?=e((string)($as['max']??''))?></div></td><td><span class="badge"><?=e(strtoupper(platformOf($as)))?></span></td><td>৳<?=number_format($default,2)?></td><td><form method="post" class="inline-price-form"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="save_service_price"><input type="hidden" name="service_id" value="<?=e($asid)?>"><input class="input" type="number" name="price" min="0.01" step="0.01" value="<?=e(number_format($custom!==null?$custom:$default,2,'.',''))?>" required><button class="btn" type="submit">Save</button></form></td><td><?php if($custom!==null):?><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="delete_service_price"><input type="hidden" name="service_id" value="<?=e($asid)?>"><button class="btn secondary" type="submit">Reset</button></form><?php else:?><span class="muted">Default</span><?php endif;?></td></tr><?php endforeach;?></table></div>
+<h3 class="section-title">Deposit Requests</h3><div style="overflow:auto"><table class="table"><tr><th>User</th><th>Method</th><th>Amount</th><th>TRX</th><th>Status</th><th>Action</th></tr><?php foreach($deps as $d):?><tr><td><?=e($d['name'])?><div class="small"><?=e($d['email'])?></div></td><td><?=e($d['method'])?></td><td>৳<?=number_format((float)$d['amount'],2)?></td><td><?=e($d['trx_id'])?></td><td><span class="badge"><?=e($d['status'])?></span></td><td><?php if($d['status']==='pending'):?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="approve_deposit"><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn green">Approve</button></form> <form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="reject_deposit"><input type="hidden" name="id" value="<?=$d['id']?>"><button class="btn secondary">Reject</button></form><?php endif;?></td></tr><?php endforeach;?></table></div>
+<h3 class="section-title">Recent Orders</h3><div style="overflow:auto"><table class="table"><tr><th>ID</th><th>User</th><th>Service</th><th>Qty</th><th>Total</th><th>Provider</th><th>Status</th></tr><?php foreach($orders as $o):?><tr><td>#<?=$o['id']?></td><td><?=e($o['name'])?></td><td><?=e($o['service_name'])?></td><td><?=e((string)$o['quantity'])?></td><td>৳<?=number_format((float)$o['total'],2)?></td><td><?=e($o['provider_order_id']?:'-')?></td><td><span class="badge"><?=e($o['status'])?></span></td></tr><?php endforeach;?></table></div>
+<script>const aps=document.getElementById('adminPriceSearch');if(aps)aps.oninput=()=>{const q=aps.value.toLowerCase().trim();document.querySelectorAll('.price-row').forEach(r=>r.style.display=r.dataset.search.includes(q)?'':'none')};</script>
 <?php else:go('?page=home');endif;?><script>function togglePassword(id,btn){const input=document.getElementById(id);if(!input)return;const show=input.type==='password';input.type=show?'text':'password';btn.textContent=show?'🙈':'👁️';btn.setAttribute('aria-label',show?'Hide password':'Show password');btn.title=show?'Hide password':'Show password';}</script></main></body></html>
