@@ -4,6 +4,10 @@ services:
     env: docker
     dockerfilePath: ./Dockerfile
     autoDeploy: false
+    disk:
+      name: trusted-bazaar-data
+      mountPath: /var/www/html/data
+      sizeGB: 1
     envVars:
       - key: PORT
         value: "10000"
