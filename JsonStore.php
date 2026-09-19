@@ -7,12 +7,12 @@ final class JsonStore {
     public function __construct(string $dir) {
         if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) throw new RuntimeException('Cannot create data directory.');
         $this->file = rtrim($dir, '/\\') . '/panel.json';
-        if (!is_file($this->file)) $this->write(['users'=>[],'deposits'=>[],'orders'=>[],'service_prices'=>[],'settings'=>[],'remember_tokens'=>[],'seq'=>['users'=>0,'deposits'=>0,'orders'=>0]]);
+        if (!is_file($this->file)) $this->write(['users'=>[],'deposits'=>[],'orders'=>[],'service_prices'=>[],'remember_tokens'=>[],'seq'=>['users'=>0,'deposits'=>0,'orders'=>0]]);
     }
     private function read(): array {
         $fp=@fopen($this->file,'c+'); if(!$fp) throw new RuntimeException('Cannot open data store.');
         flock($fp, LOCK_SH); rewind($fp); $raw=stream_get_contents($fp) ?: ''; flock($fp, LOCK_UN); fclose($fp);
-        $data=json_decode($raw,true); return is_array($data)?$data:['users'=>[],'deposits'=>[],'orders'=>[],'service_prices'=>[],'settings'=>[],'remember_tokens'=>[],'seq'=>['users'=>0,'deposits'=>0,'orders'=>0]];
+        $data=json_decode($raw,true); return is_array($data)?$data:['users'=>[],'deposits'=>[],'orders'=>[],'service_prices'=>[],'remember_tokens'=>[],'seq'=>['users'=>0,'deposits'=>0,'orders'=>0]];
     }
     private function write(array $data): void {
         $fp=@fopen($this->file,'c+'); if(!$fp) throw new RuntimeException('Cannot write data store.');
@@ -21,26 +21,18 @@ final class JsonStore {
     private function mutate(callable $fn): mixed {
         $fp=@fopen($this->file,'c+'); if(!$fp) throw new RuntimeException('Cannot open data store.');
         flock($fp, LOCK_EX); rewind($fp); $raw=stream_get_contents($fp) ?: ''; $data=json_decode($raw,true);
-        if(!is_array($data)) $data=['users'=>[],'deposits'=>[],'orders'=>[],'service_prices'=>[],'settings'=>[],'remember_tokens'=>[],'seq'=>['users'=>0,'deposits'=>0,'orders'=>0]];
+        if(!is_array($data)) $data=['users'=>[],'deposits'=>[],'orders'=>[],'service_prices'=>[],'remember_tokens'=>[],'seq'=>['users'=>0,'deposits'=>0,'orders'=>0]];
         $result=$fn($data); ftruncate($fp,0); rewind($fp); fwrite($fp,json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT)); fflush($fp); flock($fp,LOCK_UN); fclose($fp); return $result;
     }
     private function id(array &$d,string $type): int { $d['seq'][$type]=((int)($d['seq'][$type]??0))+1; return $d['seq'][$type]; }
     public function findUserByEmail(string $email): ?array { $email=strtolower($email); foreach($this->read()['users'] as $u) if(strtolower((string)$u['email'])===$email)return $u; return null; }
     public function findUser(int $id): ?array { foreach($this->read()['users'] as $u) if((int)$u['id']===$id)return $u; return null; }
     public function createUser(string $name,string $email,string $password,string $role='customer'): array { return $this->mutate(function(&$d)use($name,$email,$password,$role){foreach($d['users'] as $u)if(strtolower($u['email'])===strtolower($email))throw new RuntimeException('duplicate');$u=['id'=>$this->id($d,'users'),'name'=>$name,'email'=>strtolower($email),'password'=>$password,'balance'=>0.0,'role'=>$role,'created_at'=>date('Y-m-d H:i:s')];$d['users'][]=$u;return $u;}); }
-    public function allUsers(): array { $rows=$this->read()['users']; usort($rows,fn($a,$b)=>(int)$b['id']<=>(int)$a['id']); return $rows; }
     public function updateUser(int $id,array $changes): ?array { return $this->mutate(function(&$d)use($id,$changes){foreach($d['users'] as &$u)if((int)$u['id']===$id){$u=array_merge($u,$changes);return $u;}return null;}); }
     public function rememberForUser(int $uid): void { $this->mutate(function(&$d)use($uid){$d['remember_tokens']=array_values(array_filter($d['remember_tokens'],fn($t)=>(int)$t['user_id']!==$uid));}); }
     public function addRemember(int $uid,string $hash,int $expires): void { $this->mutate(function(&$d)use($uid,$hash,$expires){$d['remember_tokens']=array_values(array_filter($d['remember_tokens'],fn($t)=>(string)$t['token_hash']!==$hash));$d['remember_tokens'][]=['user_id'=>$uid,'token_hash'=>$hash,'expires_at'=>$expires,'created_at'=>date('Y-m-d H:i:s')];}); }
     public function restoreToken(string $hash): ?array { $d=$this->read();$now=time();foreach($d['remember_tokens'] as $t)if($t['token_hash']===$hash&&(int)$t['expires_at']>$now)return $this->findUser((int)$t['user_id']);return null; }
     public function deleteRememberHash(string $hash): void { $this->mutate(function(&$d)use($hash){$d['remember_tokens']=array_values(array_filter($d['remember_tokens'],fn($t)=>(string)$t['token_hash']!==$hash));}); }
-    public function getSetting(string $key, mixed $default=null): mixed {
-        $d=$this->read(); return array_key_exists($key,$d['settings']??[])?$d['settings'][$key]:$default;
-    }
-    public function setSetting(string $key, mixed $value): void {
-        $this->mutate(function(&$d)use($key,$value){ if(!isset($d['settings'])||!is_array($d['settings']))$d['settings']=[]; $d['settings'][$key]=$value; });
-    }
-
     public function price(string $sid): ?float { foreach($this->read()['service_prices'] as $p)if((string)$p['service_id']===$sid)return (float)$p['price'];return null; }
     public function allPrices(): array { return $this->read()['service_prices']; }
     public function setPrice(string $sid,float $price): void { $this->mutate(function(&$d)use($sid,$price){$found=false;foreach($d['service_prices'] as &$p)if((string)$p['service_id']===$sid){$p['price']=$price;$p['updated_at']=date('Y-m-d H:i:s');$found=true;break;}if(!$found)$d['service_prices'][]=['service_id'=>$sid,'price'=>$price,'updated_at'=>date('Y-m-d H:i:s')];}); }
