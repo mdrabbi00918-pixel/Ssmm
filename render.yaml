@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: sumon-bhai-panel
+    env: docker
+    dockerfilePath: ./Dockerfile
+    autoDeploy: false
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: DB_DIR
+        value: /var/www/html/data
+      - key: USD_TO_BDT
+        value: "122"
+      - key: MARKUP_BDT
+        value: "10"
+      - key: SMM_API_URL
+        sync: false
+      - key: SMM_API_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
