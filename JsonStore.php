@@ -61,7 +61,7 @@ final class JsonStore {
         // Avoid running the full CREATE TABLE/INDEX migration on every request.
         // The marker is per container/process lifetime; a fresh Render instance
         // will initialize once and then skip this work on subsequent requests.
-        $marker = sys_get_temp_dir() . '/trusted_bazaar_schema_v2';
+        $marker = sys_get_temp_dir() . '/trusted_bazaar_schema_v3';
         if (is_file($marker)) return;
 
         $sql = <<<'SQL'
@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS service_prices (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS digital_products (id BIGSERIAL PRIMARY KEY,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'সুপারসেল গেম আইটেম',description TEXT NOT NULL DEFAULT '',image_url TEXT NOT NULL DEFAULT '',access_link TEXT NOT NULL,price NUMERIC(14,2) NOT NULL,active BOOLEAN NOT NULL DEFAULT TRUE,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS digital_products (id BIGSERIAL PRIMARY KEY,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'সুপারসেল গেম আইটেম',description TEXT NOT NULL DEFAULT '',image_url TEXT NOT NULL DEFAULT '',access_link TEXT NOT NULL,price NUMERIC(14,2) NOT NULL,price_usd NUMERIC(14,2) NOT NULL DEFAULT 0,active BOOLEAN NOT NULL DEFAULT TRUE,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS digital_purchases (id BIGSERIAL PRIMARY KEY,user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,product_id BIGINT NOT NULL REFERENCES digital_products(id) ON DELETE CASCADE,amount NUMERIC(14,2) NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(user_id,product_id));
 CREATE TABLE IF NOT EXISTS remember_tokens (
   token_hash TEXT PRIMARY KEY,
@@ -126,6 +126,10 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 SQL;
         $this->pdo?->exec($sql);
+        // v3 migration: add USD price to existing Supercell products without touching existing data.
+        if ($this->pdo) {
+            $this->pdo->exec("ALTER TABLE digital_products ADD COLUMN IF NOT EXISTS price_usd NUMERIC(14,2) NOT NULL DEFAULT 0");
+        }
         @file_put_contents($marker, (string)time(), LOCK_EX);
     }
 
@@ -292,9 +296,9 @@ SQL;
         if ($this->pdo) { $sql=$activeOnly?"SELECT * FROM digital_products WHERE active=TRUE ORDER BY id DESC":"SELECT * FROM digital_products ORDER BY id DESC"; return $this->pdo->query($sql)->fetchAll(); }
         $rows=$this->readJson()['digital_products']??[]; if($activeOnly)$rows=array_values(array_filter($rows,fn($x)=>!empty($x['active']))); usort($rows,fn($a,$b)=>(int)$b['id']<=>(int)$a['id']); return $rows;
     }
-    public function saveDigitalProduct(?int $id,string $name,string $description,string $image,string $link,float $price,bool $active=true): array {
-        if($this->pdo){ if($id){$s=$this->pdo->prepare('UPDATE digital_products SET name=:n,description=:d,image_url=:i,access_link=:l,price=:p,active=:a WHERE id=:id RETURNING *');$s->execute(['id'=>$id,'n'=>$name,'d'=>$description,'i'=>$image,'l'=>$link,'p'=>$price,'a'=>$active]);}else{$s=$this->pdo->prepare("INSERT INTO digital_products(name,category,description,image_url,access_link,price,active) VALUES(:n,'সুপারসেল গেম আইটেম',:d,:i,:l,:p,:a) RETURNING *");$s->execute(['n'=>$name,'d'=>$description,'i'=>$image,'l'=>$link,'p'=>$price,'a'=>$active]);} return $s->fetch()?:[]; }
-        return $this->mutateJson(function(&$d)use($id,$name,$description,$image,$link,$price,$active){ if($id){foreach($d['digital_products'] as &$x)if((int)$x['id']===$id){$x=array_merge($x,['name'=>$name,'category'=>'সুপারসেল গেম আইটেম','description'=>$description,'image_url'=>$image,'access_link'=>$link,'price'=>$price,'active'=>$active]);return $x;}return [];} $x=['id'=>$this->jsonId($d,'digital_products'),'name'=>$name,'category'=>'সুপারসেল গেম আইটেম','description'=>$description,'image_url'=>$image,'access_link'=>$link,'price'=>$price,'active'=>$active,'created_at'=>date('Y-m-d H:i:s')];$d['digital_products'][]=$x;return $x; });
+    public function saveDigitalProduct(?int $id,string $name,string $description,string $image,string $link,float $price,float $priceUsd,bool $active=true): array {
+        if($this->pdo){ if($id){$s=$this->pdo->prepare('UPDATE digital_products SET name=:n,description=:d,image_url=:i,access_link=:l,price=:p,price_usd=:pu,active=:a WHERE id=:id RETURNING *');$s->execute(['id'=>$id,'n'=>$name,'d'=>$description,'i'=>$image,'l'=>$link,'p'=>$price,'pu'=>$priceUsd,'a'=>$active]);}else{$s=$this->pdo->prepare("INSERT INTO digital_products(name,category,description,image_url,access_link,price,price_usd,active) VALUES(:n,'সুপারসেল গেম আইটেম',:d,:i,:l,:p,:pu,:a) RETURNING *");$s->execute(['n'=>$name,'d'=>$description,'i'=>$image,'l'=>$link,'p'=>$price,'pu'=>$priceUsd,'a'=>$active]);} return $s->fetch()?:[]; }
+        return $this->mutateJson(function(&$d)use($id,$name,$description,$image,$link,$price,$priceUsd,$active){ if($id){foreach($d['digital_products'] as &$x)if((int)$x['id']===$id){$x=array_merge($x,['name'=>$name,'category'=>'সুপারসেল গেম আইটেম','description'=>$description,'image_url'=>$image,'access_link'=>$link,'price'=>$price,'price_usd'=>$priceUsd,'active'=>$active]);return $x;}return [];} $x=['id'=>$this->jsonId($d,'digital_products'),'name'=>$name,'category'=>'সুপারসেল গেম আইটেম','description'=>$description,'image_url'=>$image,'access_link'=>$link,'price'=>$price,'price_usd'=>$priceUsd,'active'=>$active,'created_at'=>date('Y-m-d H:i:s')];$d['digital_products'][]=$x;return $x; });
     }
     public function deleteDigitalProduct(int $id): bool { if($this->pdo){$s=$this->pdo->prepare('DELETE FROM digital_products WHERE id=:id');$s->execute(['id'=>$id]);return $s->rowCount()>0;} return $this->mutateJson(function(&$d)use($id){$n=count($d['digital_products']??[]);$d['digital_products']=array_values(array_filter($d['digital_products']??[],fn($x)=>(int)$x['id']!==$id));return count($d['digital_products'])<$n;}); }
     public function buyDigitalProduct(int $uid,int $pid): ?array { if($this->pdo){$this->pdo->beginTransaction();try{$s=$this->pdo->prepare('SELECT * FROM digital_products WHERE id=:id AND active=TRUE FOR UPDATE');$s->execute(['id'=>$pid]);$p=$s->fetch();if(!$p){$this->pdo->rollBack();return null;}$s=$this->pdo->prepare('SELECT * FROM digital_purchases WHERE user_id=:u AND product_id=:p');$s->execute(['u'=>$uid,'p'=>$pid]);if($s->fetch()){$this->pdo->rollBack();return $p;}$s=$this->pdo->prepare('UPDATE users SET balance=balance-:a WHERE id=:u AND balance>=:a');$s->execute(['a'=>$p['price'],'u'=>$uid]);if($s->rowCount()!==1){$this->pdo->rollBack();return null;}$s=$this->pdo->prepare('INSERT INTO digital_purchases(user_id,product_id,amount) VALUES(:u,:p,:a)');$s->execute(['u'=>$uid,'p'=>$pid,'a'=>$p['price']]);$s=$this->pdo->prepare('UPDATE digital_products SET active=FALSE WHERE id=:id');$s->execute(['id'=>$pid]);$p['active']=false;$this->pdo->commit();return $p;}catch(Throwable $e){if($this->pdo->inTransaction())$this->pdo->rollBack();throw $e;}} return $this->mutateJson(function(&$d)use($uid,$pid){foreach($d['digital_purchases']??[] as $x)if((int)$x['user_id']===$uid&&(int)$x['product_id']===$pid){foreach($d['digital_products'] as $p)if((int)$p['id']===$pid)return $p;return null;}foreach($d['users'] as &$u)if((int)$u['id']===$uid){foreach($d['digital_products'] as &$p)if((int)$p['id']===$pid&&!empty($p['active'])){if((float)$u['balance']<(float)$p['price'])return null;$u['balance']-=(float)$p['price'];$p['active']=false;$d['digital_purchases'][]=['id'=>$this->jsonId($d,'digital_purchases'),'user_id'=>$uid,'product_id'=>$pid,'amount'=>(float)$p['price'],'created_at'=>date('Y-m-d H:i:s')];return $p;}}return null;}); }
