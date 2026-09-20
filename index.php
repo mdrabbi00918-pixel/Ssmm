@@ -99,14 +99,15 @@ function brandIconFile(string $brand):string{
 }
 function platformIcon(string $p):string{
     $file=brandIconFile($p);
-    if($file==='') return '<span class="brand-fallback" aria-hidden="true">'.e(mb_strtoupper(mb_substr($p,0,1))).'</span>';
+    $fallback='<span class="brand-fallback" aria-hidden="true">'.e(mb_strtoupper(mb_substr($p,0,1))).'</span>';
+    if($file==='') return $fallback;
     $path=__DIR__.'/uploads/brand-icons/'.$file;
-    if(!is_file($path)) return '<span class="brand-fallback" aria-hidden="true">'.e(mb_strtoupper(mb_substr($p,0,1))).'</span>';
+    if(!is_file($path)) return $fallback;
     $svg=@file_get_contents($path);
-    if($svg===false || stripos($svg,'<svg')===false) return '<span class="brand-fallback" aria-hidden="true">'.e(mb_strtoupper(mb_substr($p,0,1))).'</span>';
-    // Embed the local SVG directly so category/service icons do not depend on a separate HTTP asset request.
+    if($svg===false || stripos($svg,'<svg')===false) return $fallback;
+    // Keep the logo completely local and inline. No <img src>, no CDN and no external request.
     $svg=preg_replace('/<\?xml[^>]*>/i','',$svg);
-    $svg=preg_replace('/<svg\b/i','<svg class="brand-svg" aria-hidden="true" focusable="false"',$svg,1);
+    $svg=preg_replace('/<svg\b([^>]*)>/i','<svg class="brand-svg" aria-hidden="true" focusable="false" width="42" height="42" style="width:42px;height:42px;display:block;fill:#111"$1>',$svg,1);
     return '<span class="brand-svg-wrap">'.$svg.'</span>';
 }
 function serviceIcon(array $s):string{
@@ -441,6 +442,17 @@ body,.app-bg,.wrap,.customer-shell,.admin-shell{background:#fff!important;color:
 .btn,.admin-shell .btn{background:#fff!important;color:#000!important;border:1px solid #d1d5db!important;box-shadow:none!important}
 .badge,.status,.status-badge{color:#000!important}
 .section-heading a,.section-heading h3,.toprow h2,.section-title{color:#000!important}
+
+/* FINAL: official brand-logo SVGs are embedded locally in the HTML. */
+.brand-svg-wrap{width:44px;height:44px;display:grid;place-items:center;overflow:hidden;flex:0 0 auto}
+.brand-svg-wrap .brand-svg{width:42px!important;height:42px!important;display:block!important;max-width:42px!important;max-height:42px!important;fill:#111!important}
+.dash-cat .brand-svg-wrap{width:48px;height:48px}
+.dash-cat .brand-svg-wrap .brand-svg{width:44px!important;height:44px!important;max-width:44px!important;max-height:44px!important}
+.cat-icon .brand-svg-wrap{width:28px;height:28px}
+.cat-icon .brand-svg-wrap .brand-svg{width:26px!important;height:26px!important;max-width:26px!important;max-height:26px!important}
+.service-icon .brand-svg-wrap{width:44px;height:44px}
+.service-icon .brand-svg-wrap .brand-svg{width:40px!important;height:40px!important;max-width:40px!important;max-height:40px!important}
+.brand-fallback{display:grid!important;place-items:center;width:42px;height:42px;border:1px solid #d1d5db;border-radius:10px;background:#fff!important;color:#000!important;font-weight:900}
 </style></head><body class="app-bg"><nav class="nav"><a class="brand" href="?page=home">Trusted <span style="color:#f05a28">BAZAAR</span></a><div class="navlinks"><?php if($u):?><a href="?page=account">👤 Account</a><a href="?page=dashboard">Dashboard</a><a href="?page=services">Services</a><a href="?page=supercell">🎮 সুপারসেল গেম আইটেম</a><a href="?page=orders">Orders</a><a href="?page=deposit">Deposit</a><a href="https://t.me/Rayhanvai120" target="_blank" rel="noopener">💬 Help</a><?php if($u['role']==='admin'):?><a href="admin.php">Admin Panel</a><?php endif;?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="logout"><button>Logout</button></form><?php else:?><a href="?page=login">Login</a><a href="?page=register">Register</a><?php endif;?></div></nav><main class="wrap"><?php if($m=flash()):?><div class="alert"><?=e($m)?></div><?php endif;?>
 <?php if($page==='home'):?>
 <div class="welcome-screen">
