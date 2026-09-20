@@ -45,6 +45,9 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
  if($action==='reject_deposit'){needAdmin();$store->rejectDeposit((int)($_POST['id']??0));go('?page=admin');}
 }
 $page=$_GET['page']??'home';
+// Keep already-authenticated customers inside the panel. A valid remember cookie
+// is restored above, so returning visitors can skip the login page.
+if(user() && in_array($page,['home','login','register'],true)) go('?page=dashboard');
 if(!user()&&!in_array($page,['login','register'],true))go('?page=login');
 $usd=(float)(getenv('USD_TO_BDT')?:122);$markup=(float)(getenv('MARKUP_BDT')?:10);$services=[];$apiError='';
 $allowedCustomerServiceIds=array_fill_keys(['1086','1076','1762','104','105','1367','1368','664','665','3901','3902','851','854','1049','242','125','133','1205','265','234','463','448','1050','474','462','476','3847','531','537','2600','629','3313','2194','2945','369','1722','1726','9445','9453','1849'],true);
@@ -97,7 +100,14 @@ function brandIconFile(string $brand):string{
 function platformIcon(string $p):string{
     $file=brandIconFile($p);
     if($file==='') return '<span class="brand-fallback" aria-hidden="true">'.e(mb_strtoupper(mb_substr($p,0,1))).'</span>';
-    return '<img src="uploads/brand-icons/'.e($file).'" alt="" loading="lazy">';
+    $path=__DIR__.'/uploads/brand-icons/'.$file;
+    if(!is_file($path)) return '<span class="brand-fallback" aria-hidden="true">'.e(mb_strtoupper(mb_substr($p,0,1))).'</span>';
+    $svg=@file_get_contents($path);
+    if($svg===false || stripos($svg,'<svg')===false) return '<span class="brand-fallback" aria-hidden="true">'.e(mb_strtoupper(mb_substr($p,0,1))).'</span>';
+    // Embed the local SVG directly so category/service icons do not depend on a separate HTTP asset request.
+    $svg=preg_replace('/<\?xml[^>]*>/i','',$svg);
+    $svg=preg_replace('/<svg\b/i','<svg class="brand-svg" aria-hidden="true" focusable="false"',$svg,1);
+    return '<span class="brand-svg-wrap">'.$svg.'</span>';
 }
 function serviceIcon(array $s):string{
     $raw=strtolower(($s['name']??'').' '.($s['category']??''));
@@ -417,6 +427,12 @@ body,.app-bg,.wrap,.customer-shell,.admin-shell{background:#fff!important;color:
 .service-card .service-icon{background:#fff!important;color:#000!important;border:1px solid #e5e7eb!important;box-shadow:none!important}
 .service-card .service-icon img{width:36px!important;height:36px!important;object-fit:contain!important;display:block!important}
 .brand-fallback{display:grid;place-items:center;width:34px;height:34px;border:1px solid #d1d5db;border-radius:8px;font-size:16px;font-weight:900;color:#000!important;background:#fff!important}
+.brand-svg-wrap{width:38px;height:38px;display:grid;place-items:center;overflow:hidden}
+.brand-svg{width:34px!important;height:34px!important;display:block!important;max-width:100%;max-height:100%;fill:currentColor!important}
+.dash-cat .brand-svg-wrap{width:42px;height:42px}
+.dash-cat .brand-svg{width:38px!important;height:38px!important}
+.service-card .service-icon .brand-svg-wrap{width:42px;height:42px}
+.service-card .service-icon .brand-svg{width:38px!important;height:38px!important}
 .admin-shell{border:1px solid #e5e7eb!important;box-shadow:none!important}
 .admin-shell,.admin-shell *,.admin-shell .muted,.admin-shell .admin-sub,.admin-shell .section-title{color:#000!important}
 .admin-shell .card,.admin-shell .admin-stat,.admin-shell .admin-action,.admin-shell .admin-badge,.admin-shell .admin-note{background:#fff!important;color:#000!important;border:1px solid #e5e7eb!important;box-shadow:none!important}
