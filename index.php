@@ -83,7 +83,9 @@ if(in_array($page,['services','home','dashboard','account','admin'],true)){
 if(in_array($page,['services','dashboard','admin'],true)){$services=array_values(array_filter($services,fn($s)=>isset($allowedCustomerServiceIds[(string)($s['service']??'')])));}
 if(user())$_SESSION['user']=$store->findUser((int)user()['id'])??user();
 $u=user();
-function platformIcon(string $p):string{$m=['youtube'=>'▶️','instagram'=>'◎','tiktok'=>'♪','facebook'=>'f','telegram'=>'✈️','twitter'=>'𝕏','linkedin'=>'in','discord'=>'◉','spotify'=>'●','twitch'=>'◉','soundcloud'=>'☁','other'=>'✦'];return $m[$p]??'✦';}
+function brandIconUrl(string $brand):string{ $brand=strtolower(trim($brand)); $map=['youtube'=>'youtube','instagram'=>'instagram','tiktok'=>'tiktok','facebook'=>'facebook','telegram'=>'telegram','twitter'=>'x','linkedin'=>'linkedin','discord'=>'discord','spotify'=>'spotify','twitch'=>'twitch','soundcloud'=>'soundcloud','whatsapp'=>'whatsapp','bigo'=>'bigo-live','poppo'=>'poppo-live','mico'=>'mico','tango'=>'tango','likee'=>'likee','chamet'=>'chamet','starmaker'=>'starmaker','snapchat'=>'snapchat','threads'=>'threads','pinterest'=>'pinterest','netflix'=>'netflix','zoom'=>'zoom','skype'=>'skype','roblox'=>'roblox','pubg'=>'pubg','free fire'=>'free-fire','mobile legends'=>'mobile-legends','efootball'=>'efootball','call of duty'=>'call-of-duty','clash of clans'=>'clash-of-clans','valorant'=>'valorant','amazon'=>'amazon','google play'=>'google-play','x'=>'x']; return 'https://api.iconify.design/logos:'.rawurlencode($map[$brand]??$brand).'.svg'; }
+function platformIcon(string $p):string{ $p=strtolower($p); $known=['youtube','instagram','tiktok','facebook','telegram','twitter','linkedin','discord','spotify','twitch','soundcloud','whatsapp','bigo','poppo','mico','tango','likee','chamet','starmaker','snapchat','threads','pinterest']; if(!in_array($p,$known,true)) return '<span aria-hidden="true">✦</span>'; return '<img src="'.e(brandIconUrl($p)).'" alt="" loading="lazy" referrerpolicy="no-referrer">'; }
+function serviceIcon(array $s):string{ $raw=strtolower(($s['name']??'').' '.($s['category']??'')); $tests=['youtube'=>'youtube','instagram'=>'instagram','tiktok'=>'tiktok','facebook'=>'facebook','telegram'=>'telegram','whatsapp'=>'whatsapp','twitter'=>'twitter','linkedin'=>'linkedin','discord'=>'discord','spotify'=>'spotify','twitch'=>'twitch','soundcloud'=>'soundcloud','bigo'=>'bigo','poppo'=>'poppo','mico'=>'mico','tango'=>'tango','likee'=>'likee','chamet'=>'chamet','starmaker'=>'starmaker','snapchat'=>'snapchat','threads'=>'threads','pinterest'=>'pinterest','netflix'=>'netflix','zoom'=>'zoom','skype'=>'skype','roblox'=>'roblox','pubg'=>'pubg','free fire'=>'free fire','mobile legends'=>'mobile legends','efootball'=>'efootball','call of duty'=>'call of duty','clash of clans'=>'clash of clans','valorant'=>'valorant','amazon'=>'amazon','google play'=>'google play']; foreach($tests as $needle=>$brand) if(str_contains($raw,$needle)) return '<img src="'.e(brandIconUrl($brand)).'" alt="" loading="lazy" referrerpolicy="no-referrer">'; return platformIcon(platformOf($s)); }
 function unitPrice(array $s,float $usd,float $markup,?float $override=null):float{ $sid=(string)($s['service']??''); $base=$override!==null?$override:(float)($s['rate']??0)*$usd+$markup; $priceIncreaseIds=['1086','1076','1762','104','105','1367','1368','664','665','3901','3902','851','854','1049','242','125','133','1205','265','234','463','448','1050','474','462','476','3847','531','537','2600','629','3313','2194','2945','369','1722','1726','9445','9453','1849']; if(in_array($sid,$priceIncreaseIds,true)){ $base+=50; if($base<100)$base=100; } return $base;}
 function platformOf(array $s):string{$raw=strtolower(($s['name']??'').' '.($s['category']??'').' '.($s['service']??''));$map=['youtube'=>['youtube','youtu.be'],'facebook'=>['facebook','fb'],'instagram'=>['instagram','ig'],'tiktok'=>['tiktok','tik tok'],'telegram'=>['telegram','tg'],'twitter'=>['twitter',' x '],'linkedin'=>['linkedin'],'discord'=>['discord'],'spotify'=>['spotify'],'twitch'=>['twitch'],'soundcloud'=>['soundcloud']];foreach($map as $k=>$words)foreach($words as $w)if(str_contains($raw,$w))return $k;return 'other';}
 function serviceTypeOf(array $s,string $platform):string{$raw=strtolower(($s['name']??'').' '.($s['category']??''));$types=['followers'=>'Followers','subscribers'=>'Subscribers','views'=>'Views','likes'=>'Likes','comments'=>'Comments','shares'=>'Shares','watch time'=>'Watch Time','members'=>'Members','saves'=>'Saves','story views'=>'Story Views','reactions'=>'Reactions','engagement'=>'Engagement'];foreach($types as $needle=>$label)if(str_contains($raw,$needle))return $label;if($platform==='youtube'){if(str_contains($raw,'sub'))return 'Subscribers';if(str_contains($raw,'view'))return 'Views';if(str_contains($raw,'like'))return 'Likes';}if($platform==='tiktok'){if(str_contains($raw,'sub'))return 'Subscribers';if(str_contains($raw,'view'))return 'Views';if(str_contains($raw,'like'))return 'Likes';if(str_contains($raw,'follow'))return 'Followers';}if($platform==='instagram'&&str_contains($raw,'follow'))return 'Followers';return 'Other';}
@@ -316,6 +318,65 @@ body{background:#f4f7fb;color:#172033}
   .promo-slide{padding:20px 18px}.promo-copy h2{font-size:20px}.promo-icon{font-size:40px}
 }
 
+
+/* ===== SINGLE-COLOR ICON / CARD THEME =====
+   Each icon/card uses one solid color only. No mixed gradients on icons.
+*/
+.dash-cat:nth-child(4n+1) .cat-img{background:#ff4f81!important}
+.dash-cat:nth-child(4n+2) .cat-img{background:#7c3aed!important}
+.dash-cat:nth-child(4n+3) .cat-img{background:#0d6efd!important}
+.dash-cat:nth-child(4n) .cat-img{background:#84cc16!important}
+
+.service-card .service-icon{background:#0d6efd!important}
+.service-card:nth-child(2n) .service-icon{background:#7c3aed!important}
+.service-card:nth-child(3n) .service-icon{background:#16a34a!important}
+.service-card:nth-child(4n) .service-icon{background:#f2b705!important}
+
+.quick-card:nth-child(1){background:#0d6efd!important}
+.quick-card:nth-child(2){background:#f2b705!important}
+.quick-card:nth-child(3){background:#16a34a!important}
+
+.wallet-pill{background:#0d6efd!important}
+.profile-mini .avatar{background:#f2b705!important}
+.promo-slide:nth-child(1){background:#0d6efd!important}
+.promo-slide:nth-child(2){background:#f2b705!important}
+.promo-slide:nth-child(3){background:#16a34a!important}
+
+.btn{background:#0d6efd!important}
+.welcome-logo{background:#0d6efd!important}
+.admin-badge,.admin-stat,.admin-action{background:#087f4f!important}
+.admin-shell .btn{background:#f2b705!important}
+.admin-shell .btn.green{background:#16a34a!important}
+.mobile-bottom a.active{background:#0d6efd!important}
+.telegram-help a{background:#16a34a!important}
+
+/* Prevent accidental gradient fills on the requested visual elements */
+.dash-cat .cat-img,
+.service-card .service-icon,
+.quick-card,
+.wallet-pill,
+.profile-mini .avatar,
+.promo-slide,
+.btn,
+.welcome-logo,
+.admin-badge,
+.admin-stat,
+.admin-action,
+.mobile-bottom a.active,
+.telegram-help a{background-image:none!important}
+
+
+/* Final customer/admin neutral theme: white background + black text */
+html,body{background:#fff!important;color:#000!important}
+body,.app-bg,.customer-shell,.admin-shell,.wrap{background:#fff!important;color:#000!important}
+.app-bg{background-image:none!important}
+.card,.service-tools,.service-count,.admin-chip,.service-card,.table,.table th,.table td,.customer-head,.admin-head,.profile-card,.profile-wrap{background:#fff!important;color:#000!important}
+h1,h2,h3,h4,h5,h6,p,span,strong,b,label,small,li,td,th,.muted,.small,.service-full-name,.service-title strong,.section-title,.toprow h2{color:#000!important}
+.service-card .service-icon{background:#fff!important;color:#000!important;box-shadow:none!important;border:1px solid #e5e7eb!important}
+.service-card .service-icon img,.cat-img img,.cat-icon img{width:100%;height:100%;object-fit:contain;display:block}
+.service-card .service-icon img{width:34px;height:34px}
+.dash-cat .cat-img{background:#fff!important;color:#000!important;border:1px solid #e5e7eb!important}
+.dash-cat .cat-img img{width:30px;height:30px}
 </style></head><body class="app-bg"><nav class="nav"><a class="brand" href="?page=home">Trusted <span style="color:#f05a28">BAZAAR</span></a><div class="navlinks"><?php if($u):?><a href="?page=account">👤 Account</a><a href="?page=dashboard">Dashboard</a><a href="?page=services">Services</a><a href="?page=supercell">🎮 সুপারসেল গেম আইটেম</a><a href="?page=orders">Orders</a><a href="?page=deposit">Deposit</a><a href="https://t.me/Rayhanvai120" target="_blank" rel="noopener">💬 Help</a><?php if($u['role']==='admin'):?><a href="admin.php">Admin Panel</a><?php endif;?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="logout"><button>Logout</button></form><?php else:?><a href="?page=login">Login</a><a href="?page=register">Register</a><?php endif;?></div></nav><main class="wrap"><?php if($m=flash()):?><div class="alert"><?=e($m)?></div><?php endif;?>
 <?php if($page==='home'):?>
 <div class="welcome-screen">
@@ -357,7 +418,7 @@ $dashPlatforms=[];foreach($services as $ds){$dp=platformOf($ds);if(!isset($dashP
   $p=unitPrice($s,$usd,$markup,$ov); $raw=strtolower(($s['name']??'').' '.($s['category']??'').' '.$sid); $platform=platformOf($s); $stype=serviceTypeOf($s,$platform);
 ?>
 <div class="card service-card service-item" data-search="<?=e($raw)?>" data-platform="<?=e($platform)?>" data-type="<?=e(strtolower($stype))?>">
- <div class="service-title"><span class="service-icon"><?=e(platformIcon($platform))?></span><strong><?=e((string)($s['name']??'Service'))?></strong></div><div class="service-meta"><span class="badge"><?=e(strtoupper($platform))?></span><span class="badge soft"><?=e($stype)?></span><span class="badge soft">ID <?=e($sid)?></span></div>
+ <div class="service-title"><span class="service-icon"><?=serviceIcon($s)?></span><strong><?=e((string)($s['name']??'Service'))?></strong></div><div class="service-meta"><span class="badge"><?=e(strtoupper($platform))?></span><span class="badge soft"><?=e($stype)?></span><span class="badge soft">ID <?=e($sid)?></span></div>
  <div class="muted service-full-name">Service: <?=e((string)($s['name']??'Service'))?></div><div class="muted">Min <?=e((string)($s['min']??''))?> • Max <?=e((string)($s['max']??''))?></div>
  <div class="bottom"><div><div class="price">৳<?=number_format($p,2)?></div><div class="muted">per 1,000<?= $ov!==null?' • custom price':''?></div></div><button class="btn" onclick='openOrder(<?=json_encode($sid)?>,<?=json_encode((string)($s['name']??''))?>,<?=json_encode((float)$p)?>,<?=json_encode((int)($s['min']??1))?>,<?=json_encode((int)($s['max']??1000000))?>)'>Order Now</button></div>
 </div>
