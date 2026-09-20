@@ -99,12 +99,11 @@ function brandIconFile(string $brand):string{
 }
 function platformIcon(string $p):string{
     $file=brandIconFile($p);
-    $fallback='<span class="brand-fallback" aria-hidden="true">'.e(mb_strtoupper(mb_substr($p,0,1))).'</span>';
-    if($file==='') return $fallback;
+    if($file==='') return '';
     $path=__DIR__.'/uploads/brand-icons/'.$file;
-    if(!is_file($path)) return $fallback;
+    if(!is_file($path)) return '';
     $svg=@file_get_contents($path);
-    if($svg===false || stripos($svg,'<svg')===false) return $fallback;
+    if($svg===false || stripos($svg,'<svg')===false) return '';
     // Keep the logo completely local and inline. No <img src>, no CDN and no external request.
     $svg=preg_replace('/<\?xml[^>]*>/i','',$svg);
     $svg=preg_replace('/<svg\b([^>]*)>/i','<svg class="brand-svg" aria-hidden="true" focusable="false" width="42" height="42" style="width:42px;height:42px;display:block;fill:#111"$1>',$svg,1);
@@ -453,6 +452,13 @@ body,.app-bg,.wrap,.customer-shell,.admin-shell{background:#fff!important;color:
 .service-icon .brand-svg-wrap{width:44px;height:44px}
 .service-icon .brand-svg-wrap .brand-svg{width:40px!important;height:40px!important;max-width:40px!important;max-height:40px!important}
 .brand-fallback{display:grid!important;place-items:center;width:42px;height:42px;border:1px solid #d1d5db;border-radius:10px;background:#fff!important;color:#000!important;font-weight:900}
+
+/* Final icon-only mode: no colored tile/background and no initials fallback. */
+.dash-cat .cat-img,.service-card .service-icon,.cat-icon{background:transparent!important;border:0!important;box-shadow:none!important;color:#000!important}
+.dash-cat .cat-img{width:62px!important;height:62px!important}
+.service-card .service-icon{width:56px!important;height:56px!important}
+.brand-fallback{display:none!important}
+.dash-cat .brand-svg-wrap,.service-card .brand-svg-wrap,.cat-icon .brand-svg-wrap{background:transparent!important}
 </style></head><body class="app-bg"><nav class="nav"><a class="brand" href="?page=home">Trusted <span style="color:#f05a28">BAZAAR</span></a><div class="navlinks"><?php if($u):?><a href="?page=account">👤 Account</a><a href="?page=dashboard">Dashboard</a><a href="?page=services">Services</a><a href="?page=supercell">🎮 সুপারসেল গেম আইটেম</a><a href="?page=orders">Orders</a><a href="?page=deposit">Deposit</a><a href="https://t.me/Rayhanvai120" target="_blank" rel="noopener">💬 Help</a><?php if($u['role']==='admin'):?><a href="admin.php">Admin Panel</a><?php endif;?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="logout"><button>Logout</button></form><?php else:?><a href="?page=login">Login</a><a href="?page=register">Register</a><?php endif;?></div></nav><main class="wrap"><?php if($m=flash()):?><div class="alert"><?=e($m)?></div><?php endif;?>
 <?php if($page==='home'):?>
 <div class="welcome-screen">
@@ -486,7 +492,7 @@ $dashPlatforms=[];foreach($services as $ds){$dp=platformOf($ds);if(!isset($dashP
 <div class="toprow"><div><div class="eyebrow">SERVICE MARKETPLACE</div><h2>Premium Services</h2><div class="muted">Platform → service type নির্বাচন করে দ্রুত আপনার প্রয়োজনের সার্ভিস খুঁজুন।</div></div><div class="service-count"><?=count($services)?> Services</div></div>
 <?php if($apiError):?><div class="alert"><?=e($apiError)?></div><?php endif;?>
 <div class="service-tools"><input class="input" id="search" placeholder="🔎 Search service, keyword or ID..." style="margin:0"><div class="category-bar" id="platformBar">
-  <button class="cat active" data-cat="all"><span class="cat-icon">🌐</span><span>All Services</span></button><button class="cat" data-cat="youtube"><span class="cat-icon">▶️</span><span>YouTube Services</span></button><button class="cat" data-cat="instagram"><span class="cat-icon">◎</span><span>Instagram Services</span></button><button class="cat" data-cat="tiktok"><span class="cat-icon">♪</span><span>TikTok Services</span></button><button class="cat" data-cat="facebook"><span class="cat-icon">f</span><span>Facebook Services</span></button><button class="cat" data-cat="telegram"><span class="cat-icon">✈️</span><span>Telegram Services</span></button><button class="cat" data-cat="twitter"><span class="cat-icon">𝕏</span><span>X / Twitter Services</span></button><button class="cat" data-cat="linkedin"><span class="cat-icon">in</span><span>LinkedIn Services</span></button><button class="cat" data-cat="discord"><span class="cat-icon">◉</span><span>Discord Services</span></button><button class="cat" data-cat="spotify"><span class="cat-icon">●</span><span>Spotify Services</span></button><button class="cat" data-cat="twitch"><span class="cat-icon">◉</span><span>Twitch Services</span></button><button class="cat" data-cat="soundcloud"><span class="cat-icon">☁</span><span>SoundCloud Services</span></button><button class="cat" data-cat="other"><span class="cat-icon">＋</span><span>Other Services</span></button>
+  <button class="cat active" data-cat="all"><span class="cat-icon">All</span><span>All Services</span></button><?php foreach(['youtube','instagram','tiktok','facebook','telegram','twitter','linkedin','discord','spotify','twitch','soundcloud'] as $cp): ?><button class="cat" data-cat="<?=e($cp)?>"><span class="cat-icon"><?=platformIcon($cp)?></span><span><?=e(ucwords($cp==='twitter'?'X / Twitter':$cp).' Services')?></span></button><?php endforeach; ?><button class="cat" data-cat="other"><span class="cat-icon">Other</span><span>Other Services</span></button>
 </div><div class="subcategory-bar" id="subcategoryBar"></div></div>
 <div class="grid" id="services">
 <?php $priceMap=[];foreach($store->allPrices() as $pp)$priceMap[(string)$pp['service_id']] = (float)$pp['price']; foreach($services as $s):
