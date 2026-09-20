@@ -90,7 +90,7 @@ function brandIconFile(string $brand):string{
     $brand=strtolower(trim($brand));
     $map=[
       'youtube'=>'youtube.svg','instagram'=>'instagram.svg','tiktok'=>'tiktok.svg','facebook'=>'facebook.svg',
-      'telegram'=>'telegram.svg','whatsapp'=>'whatsapp.svg','twitter'=>'twitter.svg','x'=>'x-twitter.svg',
+      'telegram'=>'telegram.svg','whatsapp'=>'whatsapp.svg','twitter'=>'x-twitter.svg','x'=>'x-twitter.svg',
       'linkedin'=>'linkedin.svg','discord'=>'discord.svg','spotify'=>'spotify.svg','twitch'=>'twitch.svg',
       'soundcloud'=>'soundcloud.svg','snapchat'=>'snapchat.svg','threads'=>'threads.svg','pinterest'=>'pinterest.svg',
       'skype'=>'skype.svg','google play'=>'google-play.svg','amazon'=>'amazon.svg','line'=>'line.svg'
@@ -104,16 +104,29 @@ function platformIcon(string $p):string{
     if(!is_file($path)) return '';
     $svg=@file_get_contents($path);
     if($svg===false || stripos($svg,'<svg')===false) return '';
-    // Keep the logo completely local and inline. No <img src>, no CDN and no external request.
+    // Local SVG only. Preserve the logo artwork; no recolor, no external request.
     $svg=preg_replace('/<\?xml[^>]*>/i','',$svg);
-    $svg=preg_replace('/<svg\b([^>]*)>/i','<svg class="brand-svg" aria-hidden="true" focusable="false" width="42" height="42" style="width:42px;height:42px;display:block;fill:#111"$1>',$svg,1);
+    $svg=preg_replace('/<svg\b([^>]*)>/i','<svg class="brand-svg" aria-hidden="true" focusable="false" width="42" height="42"$1>',$svg,1);
     return '<span class="brand-svg-wrap">'.$svg.'</span>';
 }
 function serviceIcon(array $s):string{
-    $raw=strtolower(($s['name']??'').' '.($s['category']??''));
-    $tests=['youtube'=>'youtube','instagram'=>'instagram','tiktok'=>'tiktok','facebook'=>'facebook','telegram'=>'telegram','whatsapp'=>'whatsapp','twitter'=>'twitter',' x '=>'x','linkedin'=>'linkedin','discord'=>'discord','spotify'=>'spotify','twitch'=>'twitch','soundcloud'=>'soundcloud','bigo'=>'bigo','poppo'=>'poppo','mico'=>'mico','tango'=>'tango','likee'=>'likee','chamet'=>'chamet','starmaker'=>'starmaker','snapchat'=>'snapchat','threads'=>'threads','pinterest'=>'pinterest','netflix'=>'netflix','zoom'=>'zoom','skype'=>'skype','roblox'=>'roblox','pubg'=>'pubg','free fire'=>'free fire','mobile legends'=>'mobile legends','efootball'=>'efootball','call of duty'=>'call of duty','clash of clans'=>'clash of clans','valorant'=>'valorant','amazon'=>'amazon','google play'=>'google play'];
-    foreach($tests as $needle=>$brand) if(str_contains($raw,$needle)) return platformIcon($brand);
-    return platformIcon(platformOf($s));
+    // Match the logo from the service NAME only.
+    // If there is no supported exact brand, show nothing rather than an unrelated logo.
+    $raw=strtolower(trim((string)($s['name']??'')));
+    $tests=[
+      'youtube'=>'youtube','instagram'=>'instagram','tiktok'=>'tiktok','facebook'=>'facebook',
+      'telegram'=>'telegram','whatsapp'=>'whatsapp','twitter'=>'twitter',' x '=>'x',
+      'linkedin'=>'linkedin','discord'=>'discord','spotify'=>'spotify','twitch'=>'twitch',
+      'soundcloud'=>'soundcloud','snapchat'=>'snapchat','threads'=>'threads','pinterest'=>'pinterest',
+      'skype'=>'skype','google play'=>'google play','amazon'=>'amazon','line'=>'line'
+    ];
+    foreach($tests as $needle=>$brand){
+        if(str_contains($raw,$needle)){
+            $icon=platformIcon($brand);
+            return $icon;
+        }
+    }
+    return '';
 }
 function unitPrice(array $s,float $usd,float $markup,?float $override=null):float{ $sid=(string)($s['service']??''); $base=$override!==null?$override:(float)($s['rate']??0)*$usd+$markup; $priceIncreaseIds=['1086','1076','1762','104','105','1367','1368','664','665','3901','3902','851','854','1049','242','125','133','1205','265','234','463','448','1050','474','462','476','3847','531','537','2600','629','3313','2194','2945','369','1722','1726','9445','9453','1849']; if(in_array($sid,$priceIncreaseIds,true)){ $base+=50; if($base<100)$base=100; } return $base;}
 function platformOf(array $s):string{$raw=strtolower(($s['name']??'').' '.($s['category']??'').' '.($s['service']??''));$map=['youtube'=>['youtube','youtu.be'],'facebook'=>['facebook','fb'],'instagram'=>['instagram','ig'],'tiktok'=>['tiktok','tik tok'],'telegram'=>['telegram','tg'],'twitter'=>['twitter',' x '],'linkedin'=>['linkedin'],'discord'=>['discord'],'spotify'=>['spotify'],'twitch'=>['twitch'],'soundcloud'=>['soundcloud']];foreach($map as $k=>$words)foreach($words as $w)if(str_contains($raw,$w))return $k;return 'other';}
@@ -459,6 +472,39 @@ body,.app-bg,.wrap,.customer-shell,.admin-shell{background:#fff!important;color:
 .service-card .service-icon{width:56px!important;height:56px!important}
 .brand-fallback{display:none!important}
 .dash-cat .brand-svg-wrap,.service-card .brand-svg-wrap,.cat-icon .brand-svg-wrap{background:transparent!important}
+
+/* FINAL OFFICIAL-LOGO-ONLY MODE */
+.brand-svg-wrap{
+  display:grid!important;
+  place-items:center!important;
+  width:44px!important;height:44px!important;
+  padding:0!important;margin:0!important;
+  overflow:visible!important;
+  background:transparent!important;
+  border:0!important;box-shadow:none!important;
+}
+.brand-svg-wrap .brand-svg{
+  display:block!important;
+  width:42px!important;height:42px!important;
+  max-width:42px!important;max-height:42px!important;
+  background:transparent!important;
+  border:0!important;box-shadow:none!important;
+  fill:currentColor;
+}
+.dash-cat .cat-img,.service-card .service-icon,.cat-icon{
+  display:flex!important;align-items:center!important;justify-content:center!important;
+  background:transparent!important;border:0!important;box-shadow:none!important;
+  padding:0!important;
+}
+.dash-cat .cat-img{width:62px!important;height:62px!important}
+.service-card .service-icon{width:56px!important;height:56px!important}
+.cat-icon{min-width:30px!important;min-height:30px!important}
+.dash-cat .brand-svg-wrap .brand-svg{width:48px!important;height:48px!important;max-width:48px!important;max-height:48px!important}
+.service-icon .brand-svg-wrap .brand-svg{width:42px!important;height:42px!important;max-width:42px!important;max-height:42px!important}
+.cat-icon .brand-svg-wrap{width:28px!important;height:28px!important}
+.cat-icon .brand-svg-wrap .brand-svg{width:26px!important;height:26px!important;max-width:26px!important;max-height:26px!important}
+.brand-fallback{display:none!important}
+
 </style></head><body class="app-bg"><nav class="nav"><a class="brand" href="?page=home">Trusted <span style="color:#f05a28">BAZAAR</span></a><div class="navlinks"><?php if($u):?><a href="?page=account">👤 Account</a><a href="?page=dashboard">Dashboard</a><a href="?page=services">Services</a><a href="?page=supercell">🎮 সুপারসেল গেম আইটেম</a><a href="?page=orders">Orders</a><a href="?page=deposit">Deposit</a><a href="https://t.me/Rayhanvai120" target="_blank" rel="noopener">💬 Help</a><?php if($u['role']==='admin'):?><a href="admin.php">Admin Panel</a><?php endif;?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="logout"><button>Logout</button></form><?php else:?><a href="?page=login">Login</a><a href="?page=register">Register</a><?php endif;?></div></nav><main class="wrap"><?php if($m=flash()):?><div class="alert"><?=e($m)?></div><?php endif;?>
 <?php if($page==='home'):?>
 <div class="welcome-screen">
