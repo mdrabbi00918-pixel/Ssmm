@@ -236,7 +236,87 @@ body{background:#071126;overflow-x:hidden}
 .welcome-card .welcome-login{min-width:190px;background:linear-gradient(135deg,#0d6efd,#f2b705)}
 .welcome-note{margin-top:14px;font-size:12px;color:#94a3b8}
 
-</style></head><body class="app-bg"><nav class="nav"><a class="brand" href="?page=home">Trusted Bazaar</a><div class="navlinks"><?php if($u):?><a href="?page=account">👤 Account</a><a href="?page=dashboard">Dashboard</a><a href="?page=services">Services</a><a href="?page=supercell">🎮 সুপারসেল গেম আইটেম</a><a href="?page=orders">Orders</a><a href="?page=deposit">Deposit</a><a href="https://t.me/Rayhanvai120" target="_blank" rel="noopener">💬 Help</a><?php if($u['role']==='admin'):?><a href="admin.php">Admin Panel</a><?php endif;?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="logout"><button>Logout</button></form><?php else:?><a href="?page=login">Login</a><a href="?page=register">Register</a><?php endif;?></div></nav><main class="wrap"><?php if($m=flash()):?><div class="alert"><?=e($m)?></div><?php endif;?>
+
+/* ===== FINAL CUSTOMER UI: Bright Blue / White / Yellow ===== */
+body{background:#f4f7fb;color:#172033}
+.app-bg{background:#f4f7fb;background-image:none!important}
+.nav{
+  background:#fff!important;color:#172033!important;
+  border-bottom:2px solid #0d6efd!important;
+  box-shadow:0 5px 22px rgba(13,110,253,.10)!important;
+  backdrop-filter:none!important;
+}
+.brand{color:#0d6efd!important;font-weight:950!important}
+.brand:before{background:linear-gradient(135deg,#0d6efd,#f2b705)!important}
+.navlinks a{color:#344054!important}
+.navlinks a:hover{color:#0d6efd!important}
+.wrap{max-width:1180px;margin:20px auto 70px}
+.app-bg .card,.app-bg .service-tools,.app-bg .service-count,.app-bg .admin-chip{
+  background:#fff;border-color:#dbeafe;box-shadow:0 12px 35px rgba(13,110,253,.08)
+}
+.btn{background:linear-gradient(135deg,#0d6efd,#155eef)!important;border:0}
+.btn.secondary{background:#fff!important;color:#0d6efd!important;border:1px solid #0d6efd!important}
+
+/* Customer dashboard */
+.customer-shell{background:#fff!important;border:1px solid #dbeafe!important;box-shadow:0 20px 55px rgba(13,110,253,.10)!important;backdrop-filter:none!important}
+.customer-head{border-bottom:1px solid #e5e7eb}
+.customer-brand{color:#0d6efd!important}
+.customer-brand b{color:#f05a28!important}
+.customer-tag{color:#667085}
+.wallet-pill{background:linear-gradient(135deg,#0d6efd,#155eef)!important}
+.profile-mini{background:linear-gradient(135deg,#fff,#f5f9ff)!important;border-color:#bfdbfe!important}
+.profile-mini .avatar{outline-color:#f2b705!important;background:linear-gradient(135deg,#0d6efd,#f2b705)!important}
+.profile-mini .status{background:#fff7cc!important;color:#8a6400!important}
+.quick-card:nth-child(1){background:linear-gradient(135deg,#0d6efd,#2563eb)!important}
+.quick-card:nth-child(2){background:linear-gradient(135deg,#f2b705,#f59e0b)!important}
+.quick-card:nth-child(3){background:linear-gradient(135deg,#087f5b,#0d6efd)!important}
+.dashboard-cats{grid-template-columns:repeat(3,1fr)!important}
+.dash-cat{background:#fff!important;border-color:#dbeafe!important}
+.dash-cat:nth-child(4n+1) .cat-img{background:linear-gradient(135deg,#ff4fa3,#f97316)!important}
+.dash-cat:nth-child(4n+2) .cat-img{background:linear-gradient(135deg,#7c3aed,#4f46e5)!important}
+.dash-cat:nth-child(4n+3) .cat-img{background:linear-gradient(135deg,#0d6efd,#06b6d4)!important}
+.dash-cat:nth-child(4n) .cat-img{background:linear-gradient(135deg,#84cc16,#eab308)!important}
+.section-heading a{color:#0d6efd!important}
+.cat.active{background:linear-gradient(135deg,#0d6efd,#155eef)!important;color:#fff!important}
+.service-card{background:#fff!important;border-color:#dbeafe!important}
+.service-card .service-icon{background:linear-gradient(135deg,#0d6efd,#f2b705)!important}
+.service-card:nth-child(2n) .service-icon{background:linear-gradient(135deg,#ec4899,#8b5cf6)!important}
+.service-card:nth-child(3n) .service-icon{background:linear-gradient(135deg,#0d6efd,#06b6d4)!important}
+.service-card:nth-child(4n) .service-icon{background:linear-gradient(135deg,#84cc16,#eab308)!important}
+.input:focus,select:focus,textarea:focus{border-color:#0d6efd!important;box-shadow:0 0 0 4px rgba(13,110,253,.10)!important}
+.password-toggle:hover{background:#fff7cc!important;color:#8a6400!important}
+
+/* Promo slider */
+.promo-slider{position:relative;overflow:hidden;margin:0 0 18px;border-radius:24px;background:#0d6efd;box-shadow:0 18px 45px rgba(13,110,253,.18)}
+.promo-track{display:flex;transition:transform .55s ease}
+.promo-slide{min-width:100%;padding:25px 26px;display:flex;align-items:center;justify-content:space-between;gap:18px;color:#fff;box-sizing:border-box}
+.promo-slide:nth-child(1){background:linear-gradient(135deg,#0d6efd,#155eef)}
+.promo-slide:nth-child(2){background:linear-gradient(135deg,#f2b705,#f59e0b)}
+.promo-slide:nth-child(3){background:linear-gradient(135deg,#087f5b,#0d6efd)}
+.promo-copy h2{margin:0 0 6px;font-size:25px}.promo-copy p{margin:0;opacity:.9;font-size:12px}
+.promo-icon{font-size:52px;filter:drop-shadow(0 8px 15px rgba(0,0,0,.15))}
+.promo-dots{position:absolute;bottom:9px;left:0;right:0;text-align:center}
+.promo-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.5);margin:0 3px}
+.promo-dot.active{background:#fff;width:18px;border-radius:9px}
+
+/* Bottom app navigation */
+.mobile-bottom{background:#fff!important;border:1px solid #dbeafe!important}
+.mobile-bottom a{color:#64748b!important}
+.mobile-bottom a.active{background:linear-gradient(135deg,#0d6efd,#155eef)!important;color:#fff!important}
+.telegram-help a{background:linear-gradient(135deg,#16a34a,#0d6efd)!important}
+
+/* Admin remains green/yellow */
+.admin-shell{background:linear-gradient(145deg,#063b2b,#0b5d3f 52%,#173f32)!important;border-color:rgba(242,183,5,.35)!important}
+.admin-badge,.admin-stat,.admin-action{background:linear-gradient(135deg,#087f4f,#f2b705)!important}
+.admin-shell .card{background:linear-gradient(145deg,rgba(8,143,87,.22),rgba(242,183,5,.10))!important;border-color:rgba(242,183,5,.24)!important}
+
+/* Responsive */
+@media(max-width:760px){
+  .dashboard-cats{grid-template-columns:repeat(3,1fr)!important}
+  .promo-slide{padding:20px 18px}.promo-copy h2{font-size:20px}.promo-icon{font-size:40px}
+}
+
+</style></head><body class="app-bg"><nav class="nav"><a class="brand" href="?page=home">Trusted <span style="color:#f05a28">BAZAAR</span></a><div class="navlinks"><?php if($u):?><a href="?page=account">👤 Account</a><a href="?page=dashboard">Dashboard</a><a href="?page=services">Services</a><a href="?page=supercell">🎮 সুপারসেল গেম আইটেম</a><a href="?page=orders">Orders</a><a href="?page=deposit">Deposit</a><a href="https://t.me/Rayhanvai120" target="_blank" rel="noopener">💬 Help</a><?php if($u['role']==='admin'):?><a href="admin.php">Admin Panel</a><?php endif;?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="logout"><button>Logout</button></form><?php else:?><a href="?page=login">Login</a><a href="?page=register">Register</a><?php endif;?></div></nav><main class="wrap"><?php if($m=flash()):?><div class="alert"><?=e($m)?></div><?php endif;?>
 <?php if($page==='home'):?>
 <div class="welcome-screen">
   <div class="welcome-card">
@@ -253,7 +333,14 @@ setTimeout(function(){ window.location.href='?page=login'; }, 3000);
 <?php elseif($page==='login'||$page==='register'):?><div class="card form"><div class="muted" style="margin-bottom:6px"><?= $page==='login'?'Welcome back 👋':'Start your journey ✨' ?></div><h2><?=$page==='login'?'Login':'Create account'?></h2><p class="muted" style="margin-top:0;margin-bottom:22px"><?=$page==='login'?'আপনার account-এ নিরাপদে Login করুন।':'নতুন account তৈরি করে panel ব্যবহার শুরু করুন।'?></p><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="<?=$page==='login'?'login':'register'?>"><?php if($page==='register'):?><label>Name</label><input class="input" name="name" placeholder="আপনার নাম" autocomplete="name" required><?php endif;?><label>Email</label><input class="input" type="email" name="email" placeholder="you@example.com" autocomplete="email" required><label>Password</label><div class="password-wrap"><input class="input" id="passwordField" type="password" name="password" placeholder="আপনার password লিখুন" autocomplete="<?=$page==='login'?'current-password':'new-password'?>" required><button class="password-toggle" type="button" onclick="togglePassword('passwordField',this)" aria-label="Show password" title="Show password">👁️</button></div><?php if($page==='register'):?><p class="muted" style="margin-top:-5px">কমপক্ষে ৬ অক্ষর।</p><?php endif;?><button class="btn" style="width:100%;margin-top:5px"><?=$page==='login'?'Login →':'Create Account →'?></button></form><div style="text-align:center;margin-top:18px" class="muted"><?php if($page==='login'):?>নতুন account? <a href="?page=register" style="color:#5b4ee8;font-weight:800">Register করুন</a><?php else:?>আগেই account আছে? <a href="?page=login" style="color:#5b4ee8;font-weight:800">Login করুন</a><?php endif;?></div></div>
 <?php elseif($page==='dashboard'): needLogin();
 $dashPlatforms=[];foreach($services as $ds){$dp=platformOf($ds);if(!isset($dashPlatforms[$dp]))$dashPlatforms[$dp]=['icon'=>platformIcon($dp),'count'=>0];$dashPlatforms[$dp]['count']++;} $dashPlatforms=array_slice($dashPlatforms,0,8,true); $recent=$store->userOrders((int)$u['id']); $recent=array_slice($recent,0,3);
-?><div class="customer-shell"><div class="customer-head"><div><div class="customer-brand">Trusted Bazaar</div><div class="customer-tag">All time active service</div></div><div class="head-actions"><a class="wallet-pill" href="?page=deposit">💳 ৳<?=number_format((float)$u['balance'],0)?></a><a class="avatar" href="?page=account">👤</a></div></div>
+?><div class="promo-slider" id="promoSlider">
+  <div class="promo-track" id="promoTrack">
+    <div class="promo-slide"><div class="promo-copy"><h2>Trusted BAZAAR</h2><p>দ্রুত, সহজ ও নিরাপদে আপনার প্রয়োজনীয় সার্ভিস নিন।</p></div><div class="promo-icon">🛍️</div></div>
+    <div class="promo-slide"><div class="promo-copy"><h2>Easy Add Fund</h2><p>Wallet-এ balance যোগ করে দ্রুত order করুন।</p></div><div class="promo-icon">💳</div></div>
+    <div class="promo-slide"><div class="promo-copy"><h2>Get Your Service</h2><p>পছন্দের category থেকে service বেছে নিন।</p></div><div class="promo-icon">⚡</div></div>
+  </div>
+  <div class="promo-dots"><span class="promo-dot active"></span><span class="promo-dot"></span><span class="promo-dot"></span></div>
+</div><div class="customer-shell"><div class="customer-head"><div><div class="customer-brand">Trusted <b style="color:#f05a28">BAZAAR</b></div><div class="customer-tag">All time active service</div></div><div class="head-actions"><a class="wallet-pill" href="?page=deposit">💳 ৳<?=number_format((float)$u['balance'],0)?></a><a class="avatar" href="?page=account">👤</a></div></div>
 <div class="profile-banner"><div class="profile-mini"><div class="avatar"><?=e(mb_strtoupper(mb_substr((string)$u['name'],0,1)))?></div><div style="flex:1"><div class="muted">CUSTOMER PROFILE</div><h3><?=e($u['name'])?></h3><div class="muted"><?=e($u['email'])?></div><span class="status">● Active Customer</span><div class="profile-stats"><div><b>৳<?=number_format((float)$u['balance'],2)?></b><span>Wallet Balance</span></div><div><b><?=count($recent)?></b><span>Recent Orders</span></div><div><b>✓</b><span>Account</span></div></div></div><a href="?page=account" style="font-size:26px;color:#5965d8">›</a></div><div class="quick-grid"><a class="quick-card" href="?page=orders"><strong>🛍 My Orders</strong><span>Track all orders</span></a><a class="quick-card" href="?page=deposit"><strong>💰 Add Fund</strong><span>Recharge wallet</span></a><a class="quick-card" href="?page=services"><strong>⚡ Get Service</strong><span>Browse services</span></a></div></div>
 <div class="section-heading"><h3>Service Category</h3><a href="?page=services">View All →</a></div><div class="dashboard-cats"><?php foreach($dashPlatforms as $dp=>$info):?><a class="dash-cat" href="?page=services"><div class="cat-img"><?=e($info['icon'])?></div><strong><?=e(ucwords($dp==='other'?'Other Services':$dp.' Services'))?></strong><span><?=e((string)$info['count'])?> services</span></a><?php endforeach;?></div>
 <div class="section-heading"><h3>Recent Orders</h3><a href="?page=orders">View All →</a></div><div class="card" style="padding:8px 15px"><?php if(!$recent):?><div class="muted" style="padding:18px;text-align:center">এখনও কোনো order নেই। <a href="?page=services" style="color:#5b4ee8;font-weight:900">প্রথম order করুন →</a></div><?php else:foreach($recent as $rr):?><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 4px;border-bottom:1px solid #eef0f4"><div><b><?=e($rr['service_name'])?></b><div class="small">#<?=e((string)$rr['id'])?> • <?=e($rr['created_at'])?></div></div><div style="text-align:right"><b>৳<?=number_format((float)$rr['total'],2)?></b><div class="small"><span class="badge"><?=e($rr['status'])?></span></div></div></div><?php endforeach;endif;?></div></div>
@@ -338,4 +425,16 @@ function closeOrder(){document.getElementById('modal').style.display='none'}func
 <?php if(!$digitalSales): ?><tr><td colspan="5" style="text-align:center;padding:22px">এখনো কোনো Supercell item বিক্রি হয়নি।</td></tr><?php else: foreach($digitalSales as $ds): ?><tr><td>#<?=e((string)$ds['id'])?></td><td><?=e($ds['name'])?><div class="small"><?=e($ds['email'])?></div></td><td><?=e($ds['product_name'])?></td><td>৳<?=number_format((float)$ds['amount'],2)?></td><td><?=e($ds['purchased_at'])?></td></tr><?php endforeach; endif; ?></table></div></div>
 <h3 class="section-title" id="orders">Recent Orders</h3><div class="mini-note" style="margin-bottom:14px">🟢 <b>Completed ✓</b> = অর্ডার সম্পূর্ণ। 🔵 Processing = কাজ চলছে। 🟡 Pending = অপেক্ষায়। <a class="btn refresh-btn" style="float:right;padding:7px 11px" href="?page=admin&refresh=1#orders">🔄 Refresh</a></div><div style="overflow:auto"><table class="table"><tr><th>ID</th><th>User</th><th>Service</th><th>Qty</th><th>Total</th><th>Provider</th><th>Status</th></tr><?php foreach($orders as $o):?><tr><td>#<?=$o['id']?></td><td><?=e($o['name'])?></td><td><?=e($o['service_name'])?></td><td><?=e((string)$o['quantity'])?></td><td>৳<?=number_format((float)$o['total'],2)?></td><td><?=e($o['provider_order_id']?:'-')?></td><td><span class="status-badge <?=e(statusClass($o['status']))?>"><?=e(statusLabel($o['status']))?></span></td></tr><?php endforeach;?></table></div>
 </div></div><script>const aps=document.getElementById('adminPriceSearch');if(aps)aps.oninput=()=>{const q=aps.value.toLowerCase().trim();document.querySelectorAll('.price-row').forEach(r=>r.style.display=r.dataset.search.includes(q)?'':'none')};</script>
-<?php else:go('?page=home');endif;?><?php if($u && ($page!=='admin')):?><nav class="mobile-bottom"><a class="active" href="?page=dashboard"><i>⌂</i>Home</a><a href="?page=deposit"><i>▣</i>Add Fund</a><a href="?page=orders"><i>♧</i>My Orders</a><a href="?page=services"><i>▦</i>Services</a><a href="?page=account"><i>♙</i>Account</a></nav><?php endif;?><script>function togglePassword(id,btn){const input=document.getElementById(id);if(!input)return;const show=input.type==='password';input.type=show?'text':'password';btn.textContent=show?'🙈':'👁️';btn.setAttribute('aria-label',show?'Hide password':'Show password');btn.title=show?'Hide password':'Show password';}</script></main></body></html>
+<?php else:go('?page=home');endif;?><?php if($u && ($page!=='admin')):?><nav class="mobile-bottom"><a class="active" href="?page=dashboard"><i>⌂</i>Home</a><a href="?page=deposit"><i>▣</i>Add Fund</a><a href="?page=orders"><i>♧</i>My Orders</a><a href="?page=services"><i>▦</i>My Codes</a><a href="?page=account"><i>♙</i>Account</a></nav><?php endif;?><script>function togglePassword(id,btn){const input=document.getElementById(id);if(!input)return;const show=input.type==='password';input.type=show?'text':'password';btn.textContent=show?'🙈':'👁️';btn.setAttribute('aria-label',show?'Hide password':'Show password');btn.title=show?'Hide password':'Show password';}</script></main><script>
+(function(){
+ const track=document.getElementById('promoTrack');
+ const dots=document.querySelectorAll('.promo-dot');
+ if(!track||!dots.length)return;
+ let i=0;
+ setInterval(function(){
+   i=(i+1)%dots.length;
+   track.style.transform='translateX(-'+(i*100)+'%)';
+   dots.forEach((d,n)=>d.classList.toggle('active',n===i));
+ },3500);
+})();
+</script></body></html>
