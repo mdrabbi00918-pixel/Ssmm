@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS deposits (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS deposits_status_idx ON deposits(status);
+CREATE INDEX IF NOT EXISTS deposits_id_desc_idx ON deposits(id DESC);
 CREATE INDEX IF NOT EXISTS deposits_trx_normalized_idx ON deposits (LOWER(BTRIM(trx_id)));
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -103,6 +104,7 @@ CREATE TABLE IF NOT EXISTS orders (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS orders_user_idx ON orders(user_id);
+CREATE INDEX IF NOT EXISTS orders_user_id_desc_idx ON orders(user_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS service_prices (
   service_id TEXT PRIMARY KEY,

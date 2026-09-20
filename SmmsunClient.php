@@ -5,12 +5,14 @@ final class SmmsunClient {
     private function post(array $data): array {
         if ($this->apiUrl === '' || $this->apiKey === '') return ['error'=>'SMM_API_URL or SMM_API_KEY is not configured.'];
         $data['key'] = $this->apiKey;
+        // Provider calls must fail fast so a slow upstream never blocks the
+        // whole page for 25 seconds. Normal catalogue requests are cached by index.php.
         $body = @file_get_contents($this->apiUrl, false, stream_context_create([
             'http' => [
                 'method' => 'POST',
-                'header' => "Content-Type: application/x-www-form-urlencoded\r\nAccept: application/json\r\n",
+                'header' => "Content-Type: application/x-www-form-urlencoded\r\nAccept: application/json\r\nConnection: close\r\n",
                 'content' => http_build_query($data),
-                'timeout' => 25,
+                'timeout' => 8,
                 'ignore_errors' => true,
             ],
             'ssl' => ['verify_peer' => true, 'verify_peer_name' => true]
