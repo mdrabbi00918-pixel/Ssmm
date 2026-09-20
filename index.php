@@ -131,8 +131,125 @@ body{background:#071126;overflow-x:hidden}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.admin-user-table select{min-width:120px}.admin-note{padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.8);font-size:12px}@media(max-width:760px){.settings-grid{grid-template-columns:1fr}}
 @keyframes rainbowMove{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
 @media(max-width:760px){.wrap{margin:10px auto 86px}.customer-shell{padding:11px;border-radius:23px}.customer-brand{font-size:22px}.customer-head{padding:5px 3px 12px}.wallet-pill{padding:9px 12px;font-size:12px}.profile-banner{grid-template-columns:1fr}.quick-grid{grid-template-columns:repeat(3,1fr)}.quick-card{min-height:82px;padding:12px 8px}.dashboard-cats{grid-template-columns:repeat(3,1fr);gap:9px}.dash-cat{padding:10px 5px}.dash-cat .cat-img{width:54px;height:54px}.dash-cat strong{font-size:10px}.profile-mini{padding:15px}.admin-shell{padding:12px;border-radius:22px}.admin-stat-grid{grid-template-columns:repeat(2,1fr)}.admin-actions{grid-template-columns:repeat(2,1fr)}.admin-title{font-size:24px}.mobile-bottom{position:fixed;display:grid;grid-template-columns:repeat(5,1fr);left:8px;right:8px;bottom:8px;z-index:90;background:rgba(255,255,255,.95);border:1px solid #e6e9ef;border-radius:20px;padding:7px;box-shadow:0 16px 45px rgba(0,0,0,.22);backdrop-filter:blur(16px)}.mobile-bottom a{text-align:center;color:#7b8494;font-size:10px;font-weight:800;padding:6px 2px;border-radius:13px}.mobile-bottom a.active{background:linear-gradient(135deg,#1265ff,#713cff);color:#fff}.telegram-help{right:10px;bottom:84px}.telegram-help a{padding:9px 11px;font-size:11px}.mobile-bottom i{display:block;font-style:normal;font-size:19px;margin-bottom:2px}}
+
+/* ===== Requested visual redesign: functionality/settings intentionally unchanged ===== */
+
+/* Customer panel: white + blue + yellow */
+.customer-shell{
+  background:rgba(255,255,255,.98);
+  border:1px solid #dbeafe;
+  box-shadow:0 25px 80px rgba(30,64,175,.14);
+}
+.customer-head{border-bottom:1px solid #e5e7eb}
+.customer-brand{color:#123a78}
+.customer-brand b{color:#f2b705}
+.customer-tag{color:#64748b}
+.wallet-pill{
+  background:linear-gradient(135deg,#0d6efd,#155eef);
+  box-shadow:0 10px 22px rgba(13,110,253,.22);
+}
+.profile-banner .profile-mini{
+  background:linear-gradient(135deg,#ffffff,#eff6ff);
+  border:1px solid #bfdbfe;
+}
+.profile-mini .avatar{
+  outline:3px solid #f2b705;
+  background:linear-gradient(135deg,#0d6efd,#f2b705);
+}
+.profile-mini .status{background:#fff7cc;color:#8a6400}
+.quick-card:nth-child(1){background:linear-gradient(135deg,#0d6efd,#2563eb)}
+.quick-card:nth-child(2){background:linear-gradient(135deg,#2563eb,#0ea5e9)}
+.quick-card:nth-child(3){background:linear-gradient(135deg,#f2b705,#f59e0b)}
+.dashboard-cats .dash-cat{border-color:#dbeafe}
+.dash-cat .cat-img,
+.dash-cat:nth-child(2n) .cat-img,
+.dash-cat:nth-child(3n) .cat-img{
+  background:linear-gradient(135deg,#0d6efd,#f2b705);
+}
+.section-heading a{color:#0d6efd}
+.cat.active{background:linear-gradient(135deg,#0d6efd,#f2b705);color:#fff}
+.service-card .service-icon,
+.service-card:nth-child(2n) .service-icon,
+.service-card:nth-child(3n) .service-icon{
+  background:linear-gradient(135deg,#0d6efd,#f2b705);
+}
+.btn{background:linear-gradient(135deg,#0d6efd,#155eef)}
+.btn:hover{box-shadow:0 12px 24px rgba(13,110,253,.25)}
+.password-toggle:hover{background:#fff7cc;color:#8a6400}
+.input:focus,select:focus,textarea:focus{border-color:#0d6efd;box-shadow:0 0 0 4px rgba(13,110,253,.11)}
+
+/* Admin panel: green + yellow */
+.admin-shell{
+  background:linear-gradient(145deg,#063b2b,#0b5d3f 52%,#173f32);
+  border:1px solid rgba(242,183,5,.35);
+  box-shadow:0 30px 90px rgba(4,56,38,.30);
+}
+.admin-title{color:#fff}
+.admin-badge{background:linear-gradient(135deg,#0b8f57,#f2b705);color:#fff}
+.admin-stat:nth-child(1),
+.admin-stat:nth-child(2),
+.admin-stat:nth-child(3),
+.admin-stat:nth-child(4){
+  background:linear-gradient(135deg,#087f4f,#f2b705);
+}
+.admin-action,
+.admin-action:nth-child(2),
+.admin-action:nth-child(3),
+.admin-action:nth-child(4){
+  background:linear-gradient(135deg,#087f4f,#f2b705);
+  color:#fff;
+}
+.admin-shell .card{
+  background:linear-gradient(145deg,rgba(8,143,87,.22),rgba(242,183,5,.10));
+  border-color:rgba(242,183,5,.24);
+}
+.admin-shell .table th{background:#ecfdf5;color:#14532d}
+.admin-shell .table{border-color:#bbf7d0}
+.admin-note{background:rgba(242,183,5,.10);border-color:rgba(242,183,5,.28)}
+.admin-shell .btn{background:linear-gradient(135deg,#087f4f,#f2b705)}
+.admin-shell .btn.green{background:linear-gradient(135deg,#087f4f,#16a34a)}
+
+/* Welcome screen shown on website entry; existing routes/settings remain unchanged. */
+.welcome-screen{
+  min-height:calc(100vh - 120px);
+  display:grid;
+  place-items:center;
+  padding:24px 0;
+}
+.welcome-card{
+  width:min(720px,100%);
+  text-align:center;
+  padding:48px 28px;
+  border-radius:30px;
+  background:rgba(255,255,255,.97);
+  border:1px solid #dbeafe;
+  box-shadow:0 30px 90px rgba(15,23,42,.22);
+}
+.welcome-logo{
+  width:78px;height:78px;margin:0 auto 18px;border-radius:24px;
+  display:grid;place-items:center;color:#fff;font-weight:950;font-size:20px;
+  background:linear-gradient(135deg,#0d6efd,#f2b705);
+  box-shadow:0 16px 35px rgba(13,110,253,.25);
+}
+.welcome-card h1{margin:0 0 10px;color:#123a78;font-size:clamp(30px,6vw,46px)}
+.welcome-card p{margin:0 auto 24px;max-width:560px;color:#64748b;line-height:1.8}
+.welcome-card .welcome-login{min-width:190px;background:linear-gradient(135deg,#0d6efd,#f2b705)}
+.welcome-note{margin-top:14px;font-size:12px;color:#94a3b8}
+
 </style></head><body class="app-bg"><nav class="nav"><a class="brand" href="?page=home">Trusted Bazaar</a><div class="navlinks"><?php if($u):?><a href="?page=account">👤 Account</a><a href="?page=dashboard">Dashboard</a><a href="?page=services">Services</a><a href="?page=supercell">🎮 সুপারসেল গেম আইটেম</a><a href="?page=orders">Orders</a><a href="?page=deposit">Deposit</a><a href="https://t.me/Rayhanvai120" target="_blank" rel="noopener">💬 Help</a><?php if($u['role']==='admin'):?><a href="admin.php">Admin Panel</a><?php endif;?><form method="post" style="display:inline"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="logout"><button>Logout</button></form><?php else:?><a href="?page=login">Login</a><a href="?page=register">Register</a><?php endif;?></div></nav><main class="wrap"><?php if($m=flash()):?><div class="alert"><?=e($m)?></div><?php endif;?>
-<?php if($page==='home'):?><section class="hero"><h1>Trusted Bazaar</h1><p>Login করুন, তারপর আপনার Dashboard থেকে Services, Categories, Deposit ও Orders ব্যবহার করুন।</p><a class="btn" href="?page=services">Services দেখুন</a></section><div class="grid"><div class="card"><h3>Live Services</h3><p>Provider API থেকে সার্ভিস লোড হয়।</p></div><div class="card"><h3>Wallet</h3><p>Deposit করে balance যোগ করুন। সর্বনিম্ন Deposit ৳50।</p></div><div class="card"><h3>Orders</h3><p>আপনার order history এখানেই থাকবে।</p></div></div>
+<?php if($page==='home'):?>
+<div class="welcome-screen">
+  <div class="welcome-card">
+    <div class="welcome-logo">TB</div>
+    <h1>Welcome to Trusted Bazaar</h1>
+    <p>আপনাকে Trusted Bazaar-এ স্বাগতম। আপনার account ব্যবহার করতে Login করুন।</p>
+    <a class="btn welcome-login" href="?page=login">Login করুন →</a>
+    <div class="welcome-note">Secure Customer & Admin Panel</div>
+  </div>
+</div>
+<script>
+setTimeout(function(){ window.location.href='?page=login'; }, 3000);
+</script>
 <?php elseif($page==='login'||$page==='register'):?><div class="card form"><div class="muted" style="margin-bottom:6px"><?= $page==='login'?'Welcome back 👋':'Start your journey ✨' ?></div><h2><?=$page==='login'?'Login':'Create account'?></h2><p class="muted" style="margin-top:0;margin-bottom:22px"><?=$page==='login'?'আপনার account-এ নিরাপদে Login করুন।':'নতুন account তৈরি করে panel ব্যবহার শুরু করুন।'?></p><form method="post"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="<?=$page==='login'?'login':'register'?>"><?php if($page==='register'):?><label>Name</label><input class="input" name="name" placeholder="আপনার নাম" autocomplete="name" required><?php endif;?><label>Email</label><input class="input" type="email" name="email" placeholder="you@example.com" autocomplete="email" required><label>Password</label><div class="password-wrap"><input class="input" id="passwordField" type="password" name="password" placeholder="আপনার password লিখুন" autocomplete="<?=$page==='login'?'current-password':'new-password'?>" required><button class="password-toggle" type="button" onclick="togglePassword('passwordField',this)" aria-label="Show password" title="Show password">👁️</button></div><?php if($page==='register'):?><p class="muted" style="margin-top:-5px">কমপক্ষে ৬ অক্ষর।</p><?php endif;?><button class="btn" style="width:100%;margin-top:5px"><?=$page==='login'?'Login →':'Create Account →'?></button></form><div style="text-align:center;margin-top:18px" class="muted"><?php if($page==='login'):?>নতুন account? <a href="?page=register" style="color:#5b4ee8;font-weight:800">Register করুন</a><?php else:?>আগেই account আছে? <a href="?page=login" style="color:#5b4ee8;font-weight:800">Login করুন</a><?php endif;?></div></div>
 <?php elseif($page==='dashboard'): needLogin();
 $dashPlatforms=[];foreach($services as $ds){$dp=platformOf($ds);if(!isset($dashPlatforms[$dp]))$dashPlatforms[$dp]=['icon'=>platformIcon($dp),'count'=>0];$dashPlatforms[$dp]['count']++;} $dashPlatforms=array_slice($dashPlatforms,0,8,true); $recent=$store->userOrders((int)$u['id']); $recent=array_slice($recent,0,3);
